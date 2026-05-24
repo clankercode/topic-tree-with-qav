@@ -952,6 +952,216 @@ async fn handle_text(
             }
             Ok(())
         }
+        ClientMsg::PenStrokeBegin {
+            id,
+            board_id,
+            stroke_id,
+            color,
+            size,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let now = now_ms();
+            if room
+                .pen_begin_stroke(&board_id, stroke_id.clone(), color.clone(), size, now)
+                .is_some()
+            {
+                broadcast_pen_stroke_begun(room, &board_id, &stroke_id, &color, size, client_id);
+            }
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::PenStrokeAppend {
+            id,
+            board_id,
+            stroke_id,
+            points,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            if room.pen_append_points(&board_id, &stroke_id, points.clone()) {
+                broadcast_pen_stroke_appended(room, &board_id, &stroke_id, points);
+            }
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::PenStrokeEnd {
+            id,
+            board_id,
+            stroke_id,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            if room.pen_end_stroke(&board_id, &stroke_id) {
+                broadcast_pen_stroke_ended(room, &board_id, &stroke_id);
+            }
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::PenTextSet {
+            id,
+            board_id,
+            text_id,
+            x,
+            y,
+            text,
+            font_size,
+            color,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let now = now_ms();
+            let pt = crate::proto::PenText {
+                id: text_id.clone(),
+                x,
+                y,
+                text: text.clone(),
+                font_size,
+                color: color.clone(),
+                updated_at: now,
+            };
+            if room.pen_text_upsert(&board_id, pt.clone(), now) {
+                broadcast_pen_text_upserted(room, &board_id, &pt);
+            }
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::PenTextDelete {
+            id,
+            board_id,
+            text_id,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let now = now_ms();
+            if room.pen_text_delete(&board_id, &text_id, now) {
+                broadcast_pen_text_deleted(room, &board_id, &text_id);
+            }
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::PenClear { id, board_id, .. } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let now = now_ms();
+            if room.pen_clear(&board_id, now) {
+                broadcast_pen_cleared(room, &board_id);
+            }
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::PenUndo { id, board_id, .. } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            if let Some((removed_stroke_id, removed_text_id)) = room.pen_undo(&board_id) {
+                broadcast_pen_undone(room, &board_id, removed_stroke_id, removed_text_id);
+            }
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -1028,6 +1238,111 @@ fn broadcast_vote_updated(
         question_id: question_id.to_string(),
         vote_count,
         voter_guest_id: voter_guest_id.to_string(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_pen_stroke_begun(
+    room: &Arc<Room>,
+    board_id: &str,
+    stroke_id: &str,
+    color: &str,
+    size: f64,
+    author_client_id: &str,
+) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::PenStrokeBegun {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board_id: board_id.to_string(),
+        stroke_id: stroke_id.to_string(),
+        color: color.to_string(),
+        size,
+        author_client_id: author_client_id.to_string(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_pen_stroke_appended(
+    room: &Arc<Room>,
+    board_id: &str,
+    stroke_id: &str,
+    points: Vec<[f32; 3]>,
+) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::PenStrokeAppended {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board_id: board_id.to_string(),
+        stroke_id: stroke_id.to_string(),
+        points,
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_pen_stroke_ended(room: &Arc<Room>, board_id: &str, stroke_id: &str) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::PenStrokeEnded {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board_id: board_id.to_string(),
+        stroke_id: stroke_id.to_string(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_pen_text_upserted(room: &Arc<Room>, board_id: &str, text: &crate::proto::PenText) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::PenTextUpserted {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board_id: board_id.to_string(),
+        text: text.clone(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_pen_text_deleted(room: &Arc<Room>, board_id: &str, text_id: &str) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::PenTextDeleted {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board_id: board_id.to_string(),
+        text_id: text_id.to_string(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_pen_cleared(room: &Arc<Room>, board_id: &str) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::PenCleared {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board_id: board_id.to_string(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_pen_undone(
+    room: &Arc<Room>,
+    board_id: &str,
+    removed_stroke_id: Option<String>,
+    removed_text_id: Option<String>,
+) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::PenUndone {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board_id: board_id.to_string(),
+        removed_stroke_id,
+        removed_text_id,
     };
     let _ = room.broadcast.send(msg);
 }

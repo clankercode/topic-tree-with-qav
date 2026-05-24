@@ -30,6 +30,40 @@ export interface Question {
   voteCount: number;
 }
 
+export type BoardKind = "pen" | "excalidraw";
+
+export interface Board {
+  id: string;
+  kind: BoardKind;
+  title: string;
+  ord: number;
+  createdAt: number;
+}
+
+export interface PenText {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  fontSize: number;
+  color: string;
+  updatedAt: number;
+}
+
+export interface PenStrokeSummary {
+  id: string;
+  color: string;
+  size: number;
+  points: [number, number, number][];
+  createdAt: number;
+  ord: number;
+}
+
+export interface PenBoardContent {
+  strokes: PenStrokeSummary[];
+  texts: PenText[];
+}
+
 export interface RoomSummary {
   id: string;
   title: string;
@@ -75,6 +109,13 @@ export type ServerMsg =
   | (Envelope & { type: "QuestionUpdated"; question: Question })
   | (Envelope & { type: "QuestionDeleted"; questionId: string })
   | (Envelope & { type: "VoteUpdated"; questionId: string; voteCount: number; voterGuestId: string })
+  | (Envelope & { type: "PenStrokeBegun"; boardId: string; strokeId: string; color: string; size: number; authorClientId: string })
+  | (Envelope & { type: "PenStrokeAppended"; boardId: string; strokeId: string; points: [number, number, number][] })
+  | (Envelope & { type: "PenStrokeEnded"; boardId: string; strokeId: string })
+  | (Envelope & { type: "PenTextUpserted"; boardId: string; text: PenText })
+  | (Envelope & { type: "PenTextDeleted"; boardId: string; textId: string })
+  | (Envelope & { type: "PenCleared"; boardId: string })
+  | (Envelope & { type: "PenUndone"; boardId: string; removedStrokeId: string | null; removedTextId: string | null })
   | (Envelope & { type: string; [k: string]: unknown });
 
 export interface ClientHello {
