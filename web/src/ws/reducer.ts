@@ -1,9 +1,11 @@
 import { useSessionStore } from "../store";
+import { useFollowHostStore } from "../store/followHost";
 import { useToastStore } from "../store/toast";
 import type { ServerMsg } from "./types";
 
 export function applyServerMessage(msg: ServerMsg): void {
   const store = useSessionStore.getState();
+  const followHostStore = useFollowHostStore.getState();
   const toastStore = useToastStore.getState();
   switch (msg.type) {
     case "Welcome":
@@ -66,7 +68,12 @@ export function applyServerMessage(msg: ServerMsg): void {
     }
     case "FocusedBoardChanged": {
       const m = msg as Extract<ServerMsg, { type: "FocusedBoardChanged" }>;
-      store.applyFocusedBoardChanged(m.boardId, msg.seq);
+      const isHost = store.me?.role === "host";
+      if (isHost || followHostStore.followingHost) {
+        store.applyFocusedBoardChanged(m.boardId, msg.seq);
+      } else {
+        store.setLastSeq(msg.seq);
+      }
       return;
     }
     case "ExcalidrawDelta": {
@@ -120,7 +127,11 @@ export function applyServerMessage(msg: ServerMsg): void {
       return;
     }
     case "Clicked": {
+      const m = msg as Extract<ServerMsg, { type: "Clicked" }>;
       store.setLastSeq(msg.seq);
+      window.dispatchEvent(new CustomEvent(`click-ping-${m.boardId}`, {
+        detail: { x: m.x, y: m.y, displayName: m.displayName },
+      }));
       return;
     }
     case "HandsUpdated": {

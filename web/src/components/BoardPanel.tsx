@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { useSessionStore } from "../store";
+import { useFollowHostStore } from "../store/followHost";
 import { sendWsMsg } from "../ws/manager";
 import { BoardTabs } from "./BoardTabs";
 import { CreateBoardDialog } from "./CreateBoardDialog";
@@ -10,6 +11,7 @@ import type { ExcalidrawBoard as ExcalidrawBoardType, PenBoard as PenBoardType }
 
 export function BoardPanel() {
   const { boards, focusedBoardId, me } = useSessionStore();
+  const { followingHost, setFollowingHost } = useFollowHostStore();
   const [showCreate, setShowCreate] = useState(false);
   const isHost = me?.role === "host";
 
@@ -57,6 +59,17 @@ export function BoardPanel() {
           >
             <Plus className="w-4 h-4" />
           </button>
+        )}
+        {!isHost && (
+          <label className="ml-auto flex items-center gap-2 text-xs text-[rgb(var(--muted))] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={followingHost}
+              onChange={(e) => setFollowingHost(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-[rgb(var(--border))] accent-[rgb(var(--accent))]"
+            />
+            Follow host
+          </label>
         )}
       </div>
       <div className="flex-1 overflow-hidden flex items-center justify-center">

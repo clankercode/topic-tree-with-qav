@@ -9,6 +9,7 @@ import { RoomEntry } from "./routes/RoomEntry";
 import { RoomsDashboard } from "./routes/RoomsDashboard";
 import { HostSession } from "./routes/HostSession";
 import { useThemeStore } from "./store/theme";
+import { useFollowHostStore } from "./store/followHost";
 
 export function AppRoutes() {
   return (
@@ -26,9 +27,11 @@ export function AppRoutes() {
 
 export function App() {
   const initTheme = useThemeStore((s) => s.init);
+  const initFollowHost = useFollowHostStore((s) => s.init);
   useEffect(() => {
     initTheme();
-  }, [initTheme]);
+    initFollowHost();
+  }, [initTheme, initFollowHost]);
 
   return (
     <BrowserRouter>

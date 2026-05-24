@@ -3,6 +3,7 @@ import { PenCanvas } from "./PenCanvas";
 import { PenTextLayer } from "./PenTextLayer";
 import { PenToolPalette } from "./PenToolPalette";
 import { CursorLayer } from "./CursorLayer";
+import { ClickPingLayer } from "./ClickPingLayer";
 import { sendWsMsg } from "../ws/manager";
 import { useSessionStore } from "../store";
 import type { PenBoardContent } from "../ws/types";
@@ -147,6 +148,10 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
           containerRef={containerRef}
           onMouseMove={handleCursorMove}
           onMouseClick={handleClick}
+        />
+        <ClickPingLayer
+          boardId={boardId}
+          containerRef={containerRef}
         />
       </div>
     </div>

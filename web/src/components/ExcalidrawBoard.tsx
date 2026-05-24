@@ -3,6 +3,7 @@ import { Excalidraw } from "@excalidraw/excalidraw";
 import type { ExcalidrawBoard as ExcalidrawBoardType } from "../ws/types";
 import { sendWsMsg } from "../ws/manager";
 import { CursorLayer } from "./CursorLayer";
+import { ClickPingLayer } from "./ClickPingLayer";
 import { useThemeStore } from "../store/theme";
 
 interface Props {
@@ -71,6 +72,10 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
         containerRef={containerRef}
         onMouseMove={handleCursorMove}
         onMouseClick={handleClick}
+      />
+      <ClickPingLayer
+        boardId={board.id}
+        containerRef={containerRef}
       />
     </div>
   );
