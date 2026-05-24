@@ -17,6 +17,8 @@ function makeFakeSocket(url: string): FakeSocket {
     url,
     sent: [],
     closed: false,
+    readyState: 0,
+    OPEN: 1,
     onopen: null,
     onmessage: null,
     onclose: null,
@@ -26,8 +28,10 @@ function makeFakeSocket(url: string): FakeSocket {
     },
     close() {
       fake.closed = true;
+      (fake as { readyState: number }).readyState = 3;
     },
     open() {
+      (fake as { readyState: number }).readyState = 1;
       fake.onopen?.(new Event("open"));
     },
     receive(text: string) {
@@ -35,6 +39,7 @@ function makeFakeSocket(url: string): FakeSocket {
     },
     remoteClose(code = 1006, reason = "") {
       fake.closed = true;
+      (fake as { readyState: number }).readyState = 3;
       fake.onclose?.(new CloseEvent("close", { code, reason, wasClean: false }));
     },
   };

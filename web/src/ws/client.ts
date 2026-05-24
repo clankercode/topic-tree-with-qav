@@ -3,6 +3,8 @@ import { applyServerMessage } from "./reducer";
 import type { ClientMsg, ServerMsg } from "./types";
 
 export interface WebSocketLike {
+  readonly readyState: number;
+  readonly OPEN: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   onopen: ((ev: Event) => void) | null;
@@ -72,11 +74,17 @@ export class WsClient {
   }
 
   send(msg: ClientMsg): void {
-    if (!this.socket) {
+    const sock = this.socket;
+    if (!sock || sock.readyState !== sock.OPEN) {
       this.intentQueue.push({ msg, timestamp: Date.now() });
       return;
     }
-    this.socket.send(JSON.stringify(msg));
+    try {
+      sock.send(JSON.stringify(msg));
+    } catch (err) {
+      this.intentQueue.push({ msg, timestamp: Date.now() });
+      this.opts.onError?.(err);
+    }
   }
 
   getLastSeq(): bigint | null {
@@ -129,7 +137,11 @@ export class WsClient {
       this.opts.onError?.(err);
       return;
     }
-    this.checkSeq(parsed.seq);
+    if (isStateEvent(parsed)) {
+      this.checkSeq(parsed.seq);
+    } else if (parsed.type === "Welcome" || parsed.type === "RoomSnapshot") {
+      this.lastSeq = parsed.seq;
+    }
     if (parsed.type === "Ping") {
       this.send({ v: 1, type: "Pong" });
       return;
@@ -165,9 +177,12 @@ function parseEnvelope(text: string): ServerMsg {
     string,
     unknown
   >;
-  const seq = toBigInt(raw.seq);
   const ts = toBigInt(raw.ts);
-  return { ...raw, seq, ts } as unknown as ServerMsg;
+  const out: Record<string, unknown> = { ...raw, ts };
+  if (raw.seq !== undefined && raw.seq !== null) {
+    out.seq = toBigInt(raw.seq);
+  }
+  return out as unknown as ServerMsg;
 }
 
 function toBigInt(value: unknown): bigint {
@@ -175,4 +190,17 @@ function toBigInt(value: unknown): bigint {
   if (typeof value === "number") return BigInt(value);
   if (typeof value === "string") return BigInt(value);
   throw new Error(`unexpected non-numeric envelope field: ${typeof value}`);
+}
+
+const CONTROL_FRAMES = new Set([
+  "Ping",
+  "Ack",
+  "Error",
+  "RoomSnapshot",
+  "Welcome",
+  "KickNotice",
+]);
+
+function isStateEvent(msg: ServerMsg): boolean {
+  return !CONTROL_FRAMES.has(msg.type);
 }

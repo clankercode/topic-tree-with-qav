@@ -67,6 +67,29 @@ impl Db {
         Ok(self.pool.get()?)
     }
 
+    pub fn set_kicked(&self, room_id: &str, guest_id: &str, kicked: bool) -> Result<(), DbError> {
+        let conn = self.get()?;
+        let now = crate::api::now_ms();
+        conn.execute(
+            "INSERT INTO moderation (room_id, guest_id, kicked, muted, updated_at) VALUES (?1, ?2, ?3, 0, ?4)
+             ON CONFLICT (room_id, guest_id) DO UPDATE SET kicked=?3, updated_at=?4",
+            rusqlite::params![room_id, guest_id, kicked as i32, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_muted(&self, room_id: &str, guest_id: &str, muted: bool) -> Result<(), DbError> {
+        let conn = self.get()?;
+        let now = crate::api::now_ms();
+        conn.execute(
+            "INSERT INTO moderation (room_id, guest_id, kicked, muted, updated_at) VALUES (?1, ?2, 0, ?3, ?4)
+             ON CONFLICT (room_id, guest_id) DO UPDATE SET muted=?3, updated_at=?4",
+            rusqlite::params![room_id, guest_id, muted as i32, now],
+        )?;
+        Ok(())
+    }
+
+    #[cfg(test)]
     pub fn upsert_moderation(
         &self,
         room_id: &str,
@@ -75,10 +98,7 @@ impl Db {
         muted: bool,
     ) -> Result<(), DbError> {
         let conn = self.get()?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
+        let now = crate::api::now_ms();
         conn.execute(
             "INSERT INTO moderation (room_id, guest_id, kicked, muted, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT (room_id, guest_id) DO UPDATE SET kicked=?3, muted=?4, updated_at=?5",
@@ -207,5 +227,46 @@ mod tests {
         let _ = Db::open_path(&path).unwrap();
         let _ = Db::open_path(&path).unwrap();
         let _ = Db::open_path(&path).unwrap();
+    }
+
+    fn seed_room(db: &Db, room_id: &str) {
+        let conn = db.get().unwrap();
+        conn.execute(
+            "INSERT INTO rooms (id,title,admin_token_hash,created_at,last_active_at) \
+             VALUES (?1,'t','h',0,0)",
+            [room_id],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn set_kicked_preserves_existing_muted_flag() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMID000001");
+        db.set_muted("ROOMID000001", "g1", true).unwrap();
+        db.set_kicked("ROOMID000001", "g1", true).unwrap();
+        let (kicked, muted) = db.get_moderation("ROOMID000001", "g1").unwrap().unwrap();
+        assert!(kicked && muted, "kick must preserve mute");
+    }
+
+    #[test]
+    fn set_muted_preserves_existing_kicked_flag() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMID000001");
+        db.set_kicked("ROOMID000001", "g1", true).unwrap();
+        db.set_muted("ROOMID000001", "g1", true).unwrap();
+        let (kicked, muted) = db.get_moderation("ROOMID000001", "g1").unwrap().unwrap();
+        assert!(kicked && muted, "mute must preserve kick");
+    }
+
+    #[test]
+    fn set_kicked_can_clear_kick_without_touching_muted() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMID000001");
+        db.set_muted("ROOMID000001", "g1", true).unwrap();
+        db.set_kicked("ROOMID000001", "g1", true).unwrap();
+        db.set_kicked("ROOMID000001", "g1", false).unwrap();
+        let (kicked, muted) = db.get_moderation("ROOMID000001", "g1").unwrap().unwrap();
+        assert!(!kicked && muted, "unkick must preserve mute");
     }
 }

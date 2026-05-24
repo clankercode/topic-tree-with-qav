@@ -32,7 +32,7 @@ use tokio::time::{interval, timeout};
 use uuid::Uuid;
 
 use crate::api::now_ms;
-use crate::auth::verify_admin_token;
+use crate::auth::{is_valid_display_name, is_valid_guest_id, verify_admin_token};
 use crate::metrics::SharedMetrics;
 use crate::proto::{
     error_codes, ClientMsg, Question, Role, ServerMsg, Topic, TopicStatus, You, PROTOCOL_VERSION,
@@ -55,10 +55,17 @@ pub async fn ws_handler(
     State(state): State<AppState>,
     Query(q): Query<WsQuery>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state, q.room))
+    // Reject pathologically large frames before the handler sees them.
+    ws.max_message_size(2 * 1024 * 1024)
+        .max_frame_size(1024 * 1024)
+        .on_upgrade(move |socket| handle_socket(socket, state, q.room))
 }
 
 async fn handle_socket(socket: WebSocket, state: AppState, room_id: String) {
+    if !crate::auth::is_valid_room_id(&room_id) {
+        tracing::debug!(room_id = %room_id, "rejecting malformed room id");
+        return;
+    }
     if let Err(e) = run_connection(socket, state, room_id.clone()).await {
         tracing::debug!(room_id = %room_id, error = %e, "ws connection ended");
     }
@@ -176,13 +183,31 @@ async fn run_connection(
         }
     };
 
-    if guest_id.trim().is_empty() {
+    if !is_valid_guest_id(&guest_id) {
         let _ = send(
             &mut sink,
-            &error_frame(error_codes::BAD_REQUEST, "guestId required", hello_id, 0),
+            &error_frame(
+                error_codes::BAD_REQUEST,
+                "guestId must be 1..=64 visible chars",
+                hello_id,
+                0,
+            ),
         )
         .await;
-        return Err(ConnError::Protocol("empty guest id".into()));
+        return Err(ConnError::Protocol("invalid guest id".into()));
+    }
+    if !display_name.is_empty() && !is_valid_display_name(&display_name) {
+        let _ = send(
+            &mut sink,
+            &error_frame(
+                error_codes::BAD_REQUEST,
+                "displayName must be 1..=64 chars",
+                hello_id,
+                0,
+            ),
+        )
+        .await;
+        return Err(ConnError::Protocol("invalid display name".into()));
     }
 
     // ── 2. Verify the room exists and load it. ──
@@ -1124,8 +1149,10 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
-            room.delete_question(&question_id);
-            broadcast_question_deleted(room, &question_id);
+            let removed = room.delete_question(&question_id);
+            if removed {
+                broadcast_question_deleted(room, &question_id);
+            }
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -1154,7 +1181,7 @@ async fn handle_text(
             let target = target_guest_id.clone();
             let db = state.db.clone();
             task::spawn_blocking(move || {
-                if let Err(e) = db.upsert_moderation(&room_id, &target, true, false) {
+                if let Err(e) = db.set_kicked(&room_id, &target, true) {
                     tracing::error!(error = %e, room_id = %room_id, "failed to persist kick");
                 }
             });
@@ -1190,7 +1217,7 @@ async fn handle_text(
             let db = state.db.clone();
             let muted_flag = muted;
             task::spawn_blocking(move || {
-                if let Err(e) = db.upsert_moderation(&room_id, &target, false, muted_flag) {
+                if let Err(e) = db.set_muted(&room_id, &target, muted_flag) {
                     tracing::error!(error = %e, room_id = %room_id, "failed to persist mute");
                 }
             });
@@ -1398,26 +1425,39 @@ async fn handle_text(
                 return Ok(());
             }
             let now = now_ms();
-            if !room.update_excalidraw_scene(
+            match room.update_excalidraw_scene(
                 &board_id,
                 scene_version,
                 elements.clone(),
                 app_state.clone(),
                 now,
             ) {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::BAD_REQUEST,
-                        "board not found or not an excalidraw board",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
+                crate::room::ExcalidrawUpdateOutcome::Applied => {
+                    broadcast_excalidraw_delta(
+                        room,
+                        &board_id,
+                        scene_version,
+                        &elements,
+                        &app_state,
+                    );
+                }
+                crate::room::ExcalidrawUpdateOutcome::Stale => {
+                    // Silently drop — newer state is already authoritative.
+                }
+                crate::room::ExcalidrawUpdateOutcome::BoardMissing => {
+                    let _ = send(
+                        sink,
+                        &error_frame(
+                            error_codes::BAD_REQUEST,
+                            "board not found or not an excalidraw board",
+                            id,
+                            room.current_seq(),
+                        ),
+                    )
+                    .await;
+                    return Ok(());
+                }
             }
-            broadcast_excalidraw_delta(room, &board_id, scene_version, &elements, &app_state);
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -1430,6 +1470,27 @@ async fn handle_text(
             Ok(())
         }
         ClientMsg::RaiseHand { id, topic, .. } => {
+            if role != Role::Guest {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::FORBIDDEN,
+                        "raise hand is guest-only",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            if room.is_muted(guest_id) {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "muted", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
             let topic = topic.trim().to_string();
             if topic.is_empty() || topic.len() > 80 {
                 let _ = send(
@@ -1819,6 +1880,9 @@ async fn handle_text(
             if !global_rate_limiter().check(client_id, "Cursor", Quota::per_second(30.0)) {
                 return Ok(());
             }
+            if !room.board_exists(&board_id) {
+                return Ok(());
+            }
             let display_name = room
                 .presence()
                 .iter()
@@ -1840,7 +1904,7 @@ async fn handle_text(
         ClientMsg::Click {
             id, board_id, x, y, ..
         } => {
-            if !global_rate_limiter().check(client_id, "Click", Quota::per_second(30.0)) {
+            if !global_rate_limiter().check(client_id, "Click", Quota::per_second(5.0)) {
                 let _ = send(
                     sink,
                     &error_frame(
@@ -1851,6 +1915,9 @@ async fn handle_text(
                     ),
                 )
                 .await;
+                return Ok(());
+            }
+            if !room.board_exists(&board_id) {
                 return Ok(());
             }
             let display_name = room

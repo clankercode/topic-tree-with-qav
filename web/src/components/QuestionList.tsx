@@ -124,7 +124,7 @@ export function QuestionList({
 
   useEffect(() => {
     const newQ = questions.length - lastCountRef.current;
-    if (newQ > 0 && lastAtBottomRef.current) {
+    if (newQ > 0 && !lastAtBottomRef.current) {
       setNewCount((c) => c + newQ);
     }
     lastCountRef.current = questions.length;
@@ -183,7 +183,7 @@ export function QuestionList({
         )}
       </div>
 
-      {newCount > 0 && isAtBottom && (
+      {newCount > 0 && !isAtBottom && (
         <button
           onClick={handleJumpToNew}
           className="absolute bottom-4 left-1/2 -translate-x-1/2 animate-bounce rounded-full bg-[rgb(var(--primary))] px-4 py-2 text-xs font-medium text-[rgb(var(--primary-fg))] shadow-lg"

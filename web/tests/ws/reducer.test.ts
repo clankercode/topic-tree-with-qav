@@ -259,7 +259,9 @@ describe("ws reducer", () => {
     expect(s.focusedBoardId).toBe("b1");
   });
 
-  it("FocusedBoardChanged does not update for guest not following host", () => {
+  it("FocusedBoardChanged does not update for guest not following host", async () => {
+    const { useFollowHostStore } = await import("../../src/store/followHost");
+    useFollowHostStore.setState({ followingHost: false });
     applyServerMessage(welcome(1n));
     const initial = useSessionStore.getState().focusedBoardId;
     applyServerMessage({
@@ -271,6 +273,7 @@ describe("ws reducer", () => {
     });
     const s = useSessionStore.getState();
     expect(s.focusedBoardId).toBe(initial);
+    useFollowHostStore.setState({ followingHost: true });
   });
 
   it("ExcalidrawDelta updates board scene version and elements", () => {

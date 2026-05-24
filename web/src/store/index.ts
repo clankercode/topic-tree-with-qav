@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Board, ExcalidrawBoard, FatBoard, Guest, PenBoardContent, PenText, Question, RaisedHand, RoomSnapshot, RoomSummary, Topic } from "../ws/types";
+import type { Board, ExcalidrawBoard, FatBoard, Guest, PenBoard, PenBoardContent, PenText, Question, RaisedHand, RoomSnapshot, RoomSummary, Topic } from "../ws/types";
 import type { Role } from "../proto/generated";
 
 export interface Me {
@@ -89,6 +89,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   cursors: {},
   connectionStatus: "connecting",
   applyWelcome(snapshot, seq) {
+    const boards = snapshot.boards as FatBoard[];
+    const penBoards = new Map<string, PenBoardContent>();
+    for (const b of boards) {
+      if (b.kind === "pen" && "content" in b) {
+        const content = (b as PenBoard).content;
+        if (content) penBoards.set(b.id, content);
+      }
+    }
     set({
       room: snapshot.room,
       me: {
@@ -101,8 +109,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       activeTopicId: snapshot.activeTopicId,
       questions: snapshot.questions,
       myVotes: new Set(snapshot.myVotes),
-      boards: snapshot.boards as FatBoard[],
+      boards,
       focusedBoardId: snapshot.focusedBoardId,
+      penBoards,
+      penInProgressStrokes: new Map(),
       hands: snapshot.hands as RaisedHand[],
       lastSeq: seq,
       pendingOps: new Map(),
@@ -170,12 +180,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   applyVoteUpdated(questionId, voteCount, voterGuestId, seq) {
     set((state) => {
       const newMyVotes = new Set(state.myVotes);
-      const isMyVote = voterGuestId === state.me?.guestId;
-      if (isMyVote) {
-        if (voteCount > newMyVotes.size) {
-          newMyVotes.add(questionId);
-        } else {
+      if (voterGuestId === state.me?.guestId) {
+        if (newMyVotes.has(questionId)) {
           newMyVotes.delete(questionId);
+        } else {
+          newMyVotes.add(questionId);
         }
       }
       return {

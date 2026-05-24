@@ -9,7 +9,7 @@ interface FollowHostState {
 const STORAGE_KEY = "followingHost";
 
 export const useFollowHostStore = create<FollowHostState>((set) => ({
-  followingHost: false,
+  followingHost: true,
 
   setFollowingHost(following: boolean) {
     localStorage.setItem(STORAGE_KEY, String(following));
@@ -18,7 +18,7 @@ export const useFollowHostStore = create<FollowHostState>((set) => ({
 
   init() {
     const saved = localStorage.getItem(STORAGE_KEY);
-    const followingHost = saved === "true";
+    const followingHost = saved === null ? true : saved === "true";
     set({ followingHost });
   },
 }));

@@ -50,6 +50,28 @@ pub fn is_valid_room_id(id: &str) -> bool {
     id.len() == ROOM_ID_LEN && id.bytes().all(|b| matches!(b, b'A'..=b'Z' | b'2'..=b'7'))
 }
 
+/// Guest id must be a non-empty string of printable ASCII or visible Unicode
+/// chars (no control chars / whitespace), up to 64 bytes. We don't require
+/// UUIDv4 specifically because the client mints these.
+pub fn is_valid_guest_id(id: &str) -> bool {
+    let len = id.len();
+    if len == 0 || len > 64 {
+        return false;
+    }
+    id.chars().all(|c| !c.is_whitespace() && !c.is_control())
+}
+
+/// Display name: 1..=64 characters, trimmed. Disallow control chars but allow
+/// emoji / unicode letters.
+pub fn is_valid_display_name(name: &str) -> bool {
+    let trimmed = name.trim();
+    let len = trimmed.chars().count();
+    if len == 0 || len > 64 {
+        return false;
+    }
+    trimmed.chars().all(|c| !c.is_control())
+}
+
 /// Hash an admin token with argon2id using a fresh random salt. CPU-bound:
 /// callers in async contexts must wrap in `spawn_blocking`.
 pub fn hash_admin_token(token: &str) -> Result<String, AuthError> {

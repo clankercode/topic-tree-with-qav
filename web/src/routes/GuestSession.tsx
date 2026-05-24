@@ -58,7 +58,6 @@ export function GuestSession() {
         onClose: () => {
           console.log("guest ws disconnected");
           setConnectionStatus("disconnected");
-          setWsClient(null);
         },
         onError: (err) => {
           console.error("guest ws error", err);

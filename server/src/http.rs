@@ -3,8 +3,8 @@
 
 use axum::{
     body::Body,
-    extract::{Path, State},
-    http::{header, StatusCode, Uri},
+    extract::{DefaultBodyLimit, Path, State},
+    http::{header, HeaderMap, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::{any, get},
     Router,
@@ -28,6 +28,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/*rest", any(api_placeholder))
         .route("/", get(serve_index))
         .route("/*path", get(serve_asset))
+        .layer(DefaultBodyLimit::max(64 * 1024))
         .with_state(state)
 }
 
@@ -35,7 +36,21 @@ async fn healthz() -> impl IntoResponse {
     (StatusCode::OK, "ok")
 }
 
-async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+async fn metrics(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Ok(expected) = std::env::var("METRICS_TOKEN") {
+        if !expected.is_empty() {
+            let provided = headers
+                .get("authorization")
+                .and_then(|h| h.to_str().ok())
+                .and_then(|h| h.strip_prefix("Bearer "));
+            if provided != Some(expected.as_str()) {
+                return Response::builder()
+                    .status(StatusCode::UNAUTHORIZED)
+                    .body(Body::from("metrics disabled without bearer token"))
+                    .expect("build unauthorized response");
+            }
+        }
+    }
     {
         let m = state.metrics.read().await;
         m.room_count.set(state.rooms.len() as i64);

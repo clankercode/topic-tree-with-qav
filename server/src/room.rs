@@ -108,6 +108,13 @@ pub struct Room {
     pub broadcast: broadcast::Sender<ServerMsg>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExcalidrawUpdateOutcome {
+    Applied,
+    Stale,
+    BoardMissing,
+}
+
 struct RoomInner {
     seq: u64,
     presence: BTreeMap<GuestId, PresenceEntry>,
@@ -289,18 +296,54 @@ impl Room {
 
     pub fn move_topic(&self, topic_id: &str, new_parent_id: Option<String>, new_ord: f64) -> bool {
         let mut g = self.inner.lock().expect("room inner");
-        let Some(t) = g.topics.get_mut(topic_id) else {
+        if !g.topics.contains_key(topic_id) {
             return false;
-        };
-        t.parent_id = new_parent_id;
-        t.ord = new_ord;
-        true
+        }
+        if let Some(ref parent) = new_parent_id {
+            if parent == topic_id {
+                return false;
+            }
+            let mut cursor: Option<&str> = Some(parent.as_str());
+            while let Some(p) = cursor {
+                if p == topic_id {
+                    return false;
+                }
+                cursor = g.topics.get(p).and_then(|t| t.parent_id.as_deref());
+            }
+        }
+        if let Some(t) = g.topics.get_mut(topic_id) {
+            t.parent_id = new_parent_id;
+            t.ord = new_ord;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn delete_topic(&self, topic_id: &str) -> bool {
         let mut g = self.inner.lock().expect("room inner");
-        g.topics.retain(|id, _| id != topic_id);
-        if g.active_topic_id.as_deref() == Some(topic_id) {
+        if !g.topics.contains_key(topic_id) {
+            return false;
+        }
+        let mut to_remove = vec![topic_id.to_string()];
+        let mut idx = 0;
+        while idx < to_remove.len() {
+            let current = to_remove[idx].clone();
+            for (id, t) in g.topics.iter() {
+                if t.parent_id.as_deref() == Some(current.as_str()) {
+                    to_remove.push(id.clone());
+                }
+            }
+            idx += 1;
+        }
+        for id in &to_remove {
+            g.topics.remove(id);
+        }
+        if g.active_topic_id
+            .as_ref()
+            .map(|id| to_remove.contains(id))
+            .unwrap_or(false)
+        {
             g.active_topic_id = None;
         }
         true
@@ -383,9 +426,11 @@ impl Room {
 
     pub fn delete_question(&self, question_id: &str) -> bool {
         let mut g = self.inner.lock().expect("room inner");
-        g.questions.retain(|id, _| id != question_id);
-        g.vote_index.remove(question_id);
-        true
+        let removed = g.questions.remove(question_id).is_some();
+        if removed {
+            g.vote_index.remove(question_id);
+        }
+        removed
     }
 
     pub fn vote_question(
@@ -566,11 +611,11 @@ impl Room {
         elements: JsonValue,
         app_state: JsonValue,
         _updated_at: i64,
-    ) -> bool {
+    ) -> ExcalidrawUpdateOutcome {
         let mut g = self.inner.lock().expect("room inner");
         let board = g.boards.get(board_id);
         if board.is_none() || board.as_ref().map(|b| &b.kind) != Some(&BoardKind::Excalidraw) {
-            return false;
+            return ExcalidrawUpdateOutcome::BoardMissing;
         }
         let scene = g
             .excalidraw_scenes
@@ -581,10 +626,13 @@ impl Room {
                 elements: JsonValue::Array(vec![]),
                 app_state: JsonValue::Object(serde_json::Map::new()),
             });
+        if scene_version <= scene.scene_version {
+            return ExcalidrawUpdateOutcome::Stale;
+        }
         scene.scene_version = scene_version;
         scene.elements = elements;
         scene.app_state = app_state;
-        true
+        ExcalidrawUpdateOutcome::Applied
     }
 
     pub fn get_excalidraw_scene(&self, board_id: &str) -> Option<ExcalidrawScene> {
@@ -1526,15 +1574,18 @@ mod tests {
     }
 
     #[test]
-    fn excalidraw_scene_update_nonexistent_returns_false() {
+    fn excalidraw_scene_update_nonexistent_returns_board_missing() {
         let r = Room::new("R".into(), "T".into(), 0);
         let elements: JsonValue = serde_json::json!([]);
         let app_state: JsonValue = serde_json::json!({});
-        assert!(!r.update_excalidraw_scene("nonexistent", 1, elements, app_state, 200));
+        assert_eq!(
+            r.update_excalidraw_scene("nonexistent", 1, elements, app_state, 200),
+            ExcalidrawUpdateOutcome::BoardMissing
+        );
     }
 
     #[test]
-    fn excalidraw_scene_update_wrong_kind_returns_false() {
+    fn excalidraw_scene_update_wrong_kind_returns_board_missing() {
         let r = Room::new("R".into(), "T".into(), 0);
         let board = Board {
             id: "b1".into(),
@@ -1546,7 +1597,39 @@ mod tests {
         r.create_board(board, 100);
         let elements: JsonValue = serde_json::json!([]);
         let app_state: JsonValue = serde_json::json!({});
-        assert!(!r.update_excalidraw_scene("b1", 1, elements, app_state, 200));
+        assert_eq!(
+            r.update_excalidraw_scene("b1", 1, elements, app_state, 200),
+            ExcalidrawUpdateOutcome::BoardMissing
+        );
+    }
+
+    #[test]
+    fn excalidraw_scene_update_rejects_stale_version() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "e1".into(),
+            kind: BoardKind::Excalidraw,
+            title: "Excal".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        let elements: JsonValue = serde_json::json!([{"id": "el1"}]);
+        let app_state: JsonValue = serde_json::json!({});
+        assert_eq!(
+            r.update_excalidraw_scene("e1", 5, elements.clone(), app_state.clone(), 200),
+            ExcalidrawUpdateOutcome::Applied
+        );
+        assert_eq!(
+            r.update_excalidraw_scene("e1", 5, elements.clone(), app_state.clone(), 300),
+            ExcalidrawUpdateOutcome::Stale
+        );
+        assert_eq!(
+            r.update_excalidraw_scene("e1", 3, elements.clone(), app_state.clone(), 400),
+            ExcalidrawUpdateOutcome::Stale
+        );
+        let scene = r.get_excalidraw_scene("e1").unwrap();
+        assert_eq!(scene.scene_version, 5);
     }
 
     #[test]

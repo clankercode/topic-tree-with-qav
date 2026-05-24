@@ -29,11 +29,14 @@ export function HostSession() {
   const prevHandsCountRef = useRef(hands.length);
 
   useEffect(() => {
-    if (hands.length > prevHandsCountRef.current) {
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 3000);
+    if (hands.length <= prevHandsCountRef.current) {
+      prevHandsCountRef.current = hands.length;
+      return;
     }
     prevHandsCountRef.current = hands.length;
+    setShowToast(true);
+    const handle = window.setTimeout(() => setShowToast(false), 3000);
+    return () => window.clearTimeout(handle);
   }, [hands.length]);
 
   useEffect(() => {
@@ -71,7 +74,6 @@ export function HostSession() {
         onClose: () => {
           console.log("host ws disconnected");
           setConnectionStatus("disconnected");
-          setWsClient(null);
         },
         onError: (err) => {
           console.error("host ws error", err);

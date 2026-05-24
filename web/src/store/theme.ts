@@ -24,7 +24,9 @@ function applyTheme(theme: "light" | "dark") {
   }
 }
 
-export const useThemeStore = create<ThemeState>((set) => ({
+let systemMediaListenerAttached = false;
+
+export const useThemeStore = create<ThemeState>((set, get) => ({
   mode: "system",
   resolvedTheme: "light",
 
@@ -41,5 +43,24 @@ export const useThemeStore = create<ThemeState>((set) => ({
     const resolvedTheme = resolveTheme(mode);
     applyTheme(resolvedTheme);
     set({ mode, resolvedTheme });
+    if (
+      !systemMediaListenerAttached &&
+      typeof window !== "undefined" &&
+      window.matchMedia
+    ) {
+      const mql = window.matchMedia("(prefers-color-scheme: dark)");
+      const handler = () => {
+        if (get().mode !== "system") return;
+        const next = mql.matches ? "dark" : "light";
+        applyTheme(next);
+        set({ resolvedTheme: next });
+      };
+      if (mql.addEventListener) {
+        mql.addEventListener("change", handler);
+      } else if ("addListener" in mql) {
+        (mql as MediaQueryList).addListener(handler);
+      }
+      systemMediaListenerAttached = true;
+    }
   },
 }));
