@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { BoardPanel } from "../components/BoardPanel";
+import { ConnectionBanner } from "../components/ConnectionBanner";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { QAPanel } from "../components/QAPanel";
 import { RaiseHandButton } from "../components/RaiseHandButton";
@@ -20,6 +21,7 @@ export function GuestSession() {
   );
   const [sortMode, setSortMode] = useState<SortMode>("chronological");
   const kicked = useSessionStore((s) => s.kicked);
+  const setConnectionStatus = useSessionStore((s) => s.setConnectionStatus);
 
   useEffect(() => {
     if (!roomId) {
@@ -51,16 +53,20 @@ export function GuestSession() {
         },
         onOpen: () => {
           console.log("guest ws connected");
+          setConnectionStatus("connected");
         },
         onClose: () => {
           console.log("guest ws disconnected");
+          setConnectionStatus("disconnected");
           setWsClient(null);
         },
         onError: (err) => {
           console.error("guest ws error", err);
+          setConnectionStatus("disconnected");
         },
       });
       client.start();
+      setConnectionStatus("connecting");
       setWsClient(client);
     });
     return () => {
@@ -68,7 +74,7 @@ export function GuestSession() {
       setWsClient(null);
       client?.stop();
     };
-  }, [roomId]);
+  }, [roomId, setConnectionStatus]);
 
   if (record === undefined) {
     return (
@@ -107,6 +113,8 @@ export function GuestSession() {
   }
 
   return (
+    <>
+      <ConnectionBanner />
     <main data-testid="guest-shell" className="min-h-full p-6">
       <div className="mx-auto max-w-5xl space-y-4">
         <header className="flex items-center justify-between gap-4">
@@ -135,5 +143,6 @@ export function GuestSession() {
         </section>
       </div>
     </main>
+    </>
   );
 }

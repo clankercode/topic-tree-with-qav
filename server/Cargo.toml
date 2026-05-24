@@ -39,6 +39,7 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }
 mime_guess = "2"
 ts-rs = { version = "10", optional = true }
+prometheus = "0.13"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "test-util"] }

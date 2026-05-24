@@ -23,6 +23,17 @@ export function Landing() {
   }
 
   return (
+    <>
+      <header className="flex justify-end px-6 py-3 border-b border-[rgb(var(--border))]">
+        <a
+          href="https://clankercode.github.io/topic-tree-with-qav/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-[rgb(var(--accent))] hover:underline"
+        >
+          Docs
+        </a>
+      </header>
     <main className="min-h-full flex items-center justify-center p-8">
       <div className="max-w-xl w-full space-y-6 text-center">
         <h1 className="text-4xl font-semibold tracking-tight">
@@ -54,5 +65,6 @@ export function Landing() {
         </section>
       </div>
     </main>
+    </>
   );
 }

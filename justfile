@@ -167,6 +167,10 @@ db-dump out="dev-db-backup.tar.gz":
     tar -czf {{out}} dev.db dev.db-wal dev.db-shm 2>/dev/null || tar -czf {{out}} dev.db
     @echo "wrote {{out}}"
 
+# write a tarball backup of the Railway prod DB (streams to stdout, redirect to file)
+db-dump-railway:
+    railway run tar -czf - /data/app.db
+
 # print the current migration list
 db-migrations:
     @ls server/migrations/ 2>/dev/null || echo "no migrations dir yet"

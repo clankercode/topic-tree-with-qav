@@ -22,12 +22,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(%addr, %database_path, "server listening");
 
+    let metrics = server::create_metrics();
     let db = if database_path == ":memory:" {
         server::Db::open_in_memory()?
     } else {
         server::Db::open_path(&database_path)?
     };
-    let state = server::AppState::new(db);
+    let state = server::AppState::new(db, metrics);
 
     axum::serve(listener, server::app_with_state(state))
         .with_graceful_shutdown(shutdown_signal())

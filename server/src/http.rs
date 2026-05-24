@@ -36,11 +36,14 @@ async fn healthz() -> impl IntoResponse {
 }
 
 async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
-    let room_count = state.rooms.len();
-    let body = format!(
-        "# HELP topic_tree_rooms_total Number of active rooms\n         # TYPE topic_tree_rooms_total gauge\n         topic_tree_rooms_total {}\n",
-        room_count
-    );
+    {
+        let m = state.metrics.read().await;
+        m.room_count.set(state.rooms.len() as i64);
+    }
+    let body = {
+        let m = state.metrics.read().await;
+        m.render()
+    };
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/plain; version=0.0.4")

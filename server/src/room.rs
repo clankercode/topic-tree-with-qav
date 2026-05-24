@@ -794,11 +794,7 @@ impl Room {
             seq,
         ) = {
             let g = self.inner.lock().expect("room inner");
-            let questions: Vec<Question> = g
-                .questions
-                .values()
-                .map(|q| q.to_outbound())
-                .collect();
+            let questions: Vec<Question> = g.questions.values().map(|q| q.to_outbound()).collect();
             let my_votes: Vec<String> = g
                 .vote_index
                 .iter()

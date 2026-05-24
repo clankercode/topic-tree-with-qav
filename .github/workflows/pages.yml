@@ -1,0 +1,44 @@
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+      - uses: pnpm/action-setup@v3
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: 'server -> target' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -C e2e exec playwright install --with-deps chromium
+      - name: build app
+        run: just build
+      - name: capture docs screenshots
+        run: just test-e2e-only docs-screenshots.spec.ts
+      - name: build docs
+        run: just docs-build
+      - name: upload pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+      - name: deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

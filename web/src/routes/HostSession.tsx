@@ -3,6 +3,7 @@ import { Navigate, useParams } from "react-router-dom";
 import { ActiveTopicBadge } from "../components/ActiveTopicBadge";
 import { AdminBanner } from "../components/AdminBanner";
 import { BoardPanel } from "../components/BoardPanel";
+import { ConnectionBanner } from "../components/ConnectionBanner";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { PresenceMenu } from "../components/PresenceMenu";
 import { QAPanel } from "../components/QAPanel";
@@ -24,6 +25,7 @@ export function HostSession() {
   const [showHandsPopup, setShowHandsPopup] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const { topics, activeTopicId, hands } = useSessionStore();
+  const setConnectionStatus = useSessionStore((s) => s.setConnectionStatus);
   const prevHandsCountRef = useRef(hands.length);
 
   useEffect(() => {
@@ -64,16 +66,20 @@ export function HostSession() {
         },
         onOpen: () => {
           console.log("host ws connected");
+          setConnectionStatus("connected");
         },
         onClose: () => {
           console.log("host ws disconnected");
+          setConnectionStatus("disconnected");
           setWsClient(null);
         },
         onError: (err) => {
           console.error("host ws error", err);
+          setConnectionStatus("disconnected");
         },
       });
       client.start();
+      setConnectionStatus("connecting");
       setWsClient(client);
     });
     return () => {
@@ -81,7 +87,7 @@ export function HostSession() {
       setWsClient(null);
       client?.stop();
     };
-  }, [roomId]);
+  }, [roomId, setConnectionStatus]);
 
   // Keyboard shortcuts for host: j = next pending, k = previous
   useEffect(() => {
@@ -148,6 +154,8 @@ export function HostSession() {
   const adminUrl = `${joinUrl}?admin=${encodeURIComponent(record.adminToken ?? "")}`;
 
   return (
+    <>
+      <ConnectionBanner />
     <main data-testid="host-shell" className="min-h-full p-6">
       <div className="mx-auto max-w-5xl space-y-4">
         <header className="flex items-center justify-between gap-4">
@@ -251,5 +259,6 @@ export function HostSession() {
         </section>
       </div>
     </main>
+    </>
   );
 }

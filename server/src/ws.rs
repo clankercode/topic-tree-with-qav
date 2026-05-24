@@ -33,6 +33,7 @@ use uuid::Uuid;
 
 use crate::api::now_ms;
 use crate::auth::verify_admin_token;
+use crate::metrics::SharedMetrics;
 use crate::proto::{
     error_codes, ClientMsg, Question, Role, ServerMsg, Topic, TopicStatus, You, PROTOCOL_VERSION,
 };
@@ -58,8 +59,8 @@ pub async fn ws_handler(
 }
 
 async fn handle_socket(socket: WebSocket, state: AppState, room_id: String) {
-    if let Err(e) = run_connection(socket, state, room_id).await {
-        tracing::debug!(error = %e, "ws connection ended");
+    if let Err(e) = run_connection(socket, state, room_id.clone()).await {
+        tracing::debug!(room_id = %room_id, error = %e, "ws connection ended");
     }
 }
 
@@ -79,6 +80,7 @@ async fn run_connection(
     room_id: String,
 ) -> Result<(), ConnError> {
     let (mut sink, mut stream) = socket.split();
+    let metrics = state.metrics.clone();
 
     // ── 1. Await Hello (with a deadline so dead sockets don't pile up). ──
     let hello_frame = match timeout(HELLO_TIMEOUT, stream.next()).await {
@@ -421,6 +423,11 @@ async fn run_connection(
         room.remove_client(&guest_id, &client_id);
         return Err(ConnError::Io(e));
     }
+    {
+        let m = metrics.read().await;
+        m.ws_connections_opened.inc();
+    }
+    tracing::info!(room_id = %room_id, client_id = %client_id, "ws connection opened");
     if let Some(ref rid_echo) = hello_id {
         let ack = ServerMsg::Ack {
             v: PROTOCOL_VERSION,
@@ -446,6 +453,7 @@ async fn run_connection(
         &guest_id,
         role,
         &state,
+        &metrics,
     )
     .await;
 
@@ -454,6 +462,11 @@ async fn run_connection(
     if now_disconnected {
         broadcast_presence(&room);
     }
+    {
+        let m = metrics.read().await;
+        m.ws_connections_closed.inc();
+    }
+    tracing::info!(room_id = %room_id, client_id = %client_id, "ws connection closed");
     result
 }
 
@@ -467,9 +480,11 @@ async fn main_loop(
     guest_id: &str,
     role: Role,
     state: &AppState,
+    metrics: &SharedMetrics,
 ) -> Result<(), ConnError> {
     let mut hb = interval(HEARTBEAT_INTERVAL);
     hb.tick().await; // first tick is immediate; skip it
+    let room_id = room.id.clone();
     loop {
         tokio::select! {
             biased;
@@ -479,14 +494,14 @@ async fn main_loop(
                     Ok(Some(Err(e))) => return Err(ConnError::Io(e.to_string())),
                     Ok(None) => return Ok(()),
                     Err(_) => {
-                        tracing::debug!(client = %client_id, "ws idle timeout");
+                        tracing::debug!(room_id = %room_id, client_id = %client_id, "ws idle timeout");
                         return Ok(());
                     }
                 };
                 match frame {
                     Message::Text(t) => {
                         if let Err(e) = handle_text(sink, t, room, client_id, guest_id, role, state).await {
-                            tracing::debug!(error = %e, "handle_text failed");
+                            tracing::debug!(room_id = %room_id, client_id = %client_id, error = %e, "handle_text failed");
                         }
                     }
                     Message::Ping(p) => { let _ = sink.send(Message::Pong(p)).await; }
@@ -502,6 +517,10 @@ async fn main_loop(
                     Ok(msg) => {
                         if let Err(e) = send(sink, &msg).await {
                             return Err(ConnError::Io(e));
+                        }
+                        {
+                            let m = metrics.read().await;
+                            m.ws_messages_sent.inc();
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
@@ -1134,7 +1153,7 @@ async fn handle_text(
             let db = state.db.clone();
             task::spawn_blocking(move || {
                 if let Err(e) = db.upsert_moderation(&room_id, &target, true, false) {
-                    tracing::error!(error = %e, "failed to persist kick");
+                    tracing::error!(error = %e, room_id = %room_id, "failed to persist kick");
                 }
             });
             room.kick_guest(&target_guest_id);
@@ -1170,7 +1189,7 @@ async fn handle_text(
             let muted_flag = muted;
             task::spawn_blocking(move || {
                 if let Err(e) = db.upsert_moderation(&room_id, &target, false, muted_flag) {
-                    tracing::error!(error = %e, "failed to persist mute");
+                    tracing::error!(error = %e, room_id = %room_id, "failed to persist mute");
                 }
             });
             room.set_muted(&target_guest_id, muted);
@@ -1792,7 +1811,9 @@ async fn handle_text(
             }
             Ok(())
         }
-        ClientMsg::Cursor { id, board_id, x, y, .. } => {
+        ClientMsg::Cursor {
+            id, board_id, x, y, ..
+        } => {
             if !global_rate_limiter().check(client_id, "Cursor", Quota::per_second(30.0)) {
                 return Ok(());
             }
@@ -1814,11 +1835,18 @@ async fn handle_text(
             }
             Ok(())
         }
-        ClientMsg::Click { id, board_id, x, y, .. } => {
+        ClientMsg::Click {
+            id, board_id, x, y, ..
+        } => {
             if !global_rate_limiter().check(client_id, "Click", Quota::per_second(30.0)) {
                 let _ = send(
                     sink,
-                    &error_frame(error_codes::RATE_LIMIT, "click rate exceeded", id, room.current_seq()),
+                    &error_frame(
+                        error_codes::RATE_LIMIT,
+                        "click rate exceeded",
+                        id,
+                        room.current_seq(),
+                    ),
                 )
                 .await;
                 return Ok(());

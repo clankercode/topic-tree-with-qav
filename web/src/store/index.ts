@@ -33,6 +33,7 @@ export interface SessionState {
   hands: RaisedHand[];
   kicked: boolean;
   cursors: Record<string, Record<string, { x: number; y: number; displayName: string }>>;
+  connectionStatus: "connecting" | "connected" | "disconnected";
   applyWelcome(snapshot: RoomSnapshot, seq: bigint): void;
   applyPresence(guests: Guest[], seq: bigint): void;
   applyTopicTree(topics: Topic[], activeTopicId: string | null, seq: bigint): void;
@@ -60,6 +61,7 @@ export interface SessionState {
   setLastSeq(seq: bigint): void;
   reset(): void;
   setKicked(): void;
+  setConnectionStatus(status: "connecting" | "connected" | "disconnected"): void;
   optimisticAddTopic(tempId: string, parentId: string | null, title: string, afterId: string | null): string;
   optimisticRenameTopic(topicId: string, title: string): void;
   optimisticMoveTopic(topicId: string, newParentId: string | null, afterId: string | null): void;
@@ -85,6 +87,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   hands: [],
   kicked: false,
   cursors: {},
+  connectionStatus: "connecting",
   applyWelcome(snapshot, seq) {
     set({
       room: snapshot.room,
@@ -381,10 +384,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       hands: [],
       kicked: false,
       cursors: {},
+      connectionStatus: "connecting",
     });
   },
   setKicked() {
     set({ kicked: true });
+  },
+  setConnectionStatus(status) {
+    set({ connectionStatus: status });
   },
   optimisticAddTopic(tempId, parentId, title, afterId) {
     set((state) => {
