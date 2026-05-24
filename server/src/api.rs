@@ -75,15 +75,6 @@ async fn create_room(State(state): State<AppState>, body: Option<Json<CreateRoom
                 rusqlite::params![id, title, hash, now_ms],
             )
             .map_err(|e| e.to_string())?;
-
-            let board_id = uuid::Uuid::new_v4().to_string();
-            conn.execute(
-                "INSERT INTO boards (id, room_id, kind, title, ord, created_at) \
-                 VALUES (?1, ?2, 'pen', 'Pen Board', 0.0, ?3)",
-                rusqlite::params![board_id, id, now_ms],
-            )
-            .map_err(|e| e.to_string())?;
-
             Ok(())
         })
         .await;

@@ -8,7 +8,14 @@ export interface Me {
   guestId: string;
 }
 
-export type CursorPosition = { x: number; y: number; displayName: string };
+export type CursorPosition = {
+  x: number;
+  y: number;
+  displayName: string;
+  lastSeenMs: number;
+};
+
+const CURSOR_TTL_MS = 5000;
 
 type PendingOp =
   | { type: "add"; tempId: string; parentId: string | null; title: string; afterId: string | null }
@@ -32,7 +39,7 @@ export interface SessionState {
   pendingOps: Map<string, PendingOp>;
   hands: RaisedHand[];
   kicked: boolean;
-  cursors: Record<string, Record<string, { x: number; y: number; displayName: string }>>;
+  cursors: Record<string, Record<string, CursorPosition>>;
   connectionStatus: "connecting" | "connected" | "disconnected";
   applyWelcome(snapshot: RoomSnapshot, seq: bigint): void;
   applyPresence(guests: Guest[], seq: bigint): void;
@@ -349,20 +356,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   applyCursorMoved(boardId, clientId, _guestId, displayName, x, y) {
     set((state) => {
       const boardCursors = state.cursors[boardId] ?? {};
-      if (
-        boardCursors[clientId] &&
-        boardCursors[clientId].x === x &&
-        boardCursors[clientId].y === y &&
-        boardCursors[clientId].displayName === displayName
-      ) {
-        return state;
-      }
+      const lastSeenMs = Date.now();
       return {
         cursors: {
           ...state.cursors,
           [boardId]: {
             ...boardCursors,
-            [clientId]: { x, y, displayName },
+            [clientId]: { x, y, displayName, lastSeenMs },
           },
         },
       };
@@ -381,7 +381,29 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { cursors: newCursors };
     });
   },
-  tick() {},
+  tick() {
+    set((state) => {
+      const cutoff = Date.now() - CURSOR_TTL_MS;
+      let mutated = false;
+      const newCursors: typeof state.cursors = {};
+      for (const [boardId, boardCursor] of Object.entries(state.cursors)) {
+        const next: Record<string, CursorPosition> = {};
+        for (const [clientId, cursor] of Object.entries(boardCursor)) {
+          if (cursor.lastSeenMs >= cutoff) {
+            next[clientId] = cursor;
+          } else {
+            mutated = true;
+          }
+        }
+        if (Object.keys(next).length > 0) {
+          newCursors[boardId] = next;
+        } else if (Object.keys(boardCursor).length > 0) {
+          mutated = true;
+        }
+      }
+      return mutated ? { cursors: newCursors } : state;
+    });
+  },
   setLastSeq(seq) {
     set({ lastSeq: seq });
   },

@@ -10,8 +10,12 @@ import { PenBoard } from "./PenBoard";
 import type { ExcalidrawBoard as ExcalidrawBoardType } from "../ws/types";
 
 export function BoardPanel() {
-  const { boards, focusedBoardId, me, penBoards } = useSessionStore();
-  const { followingHost, setFollowingHost } = useFollowHostStore();
+  const boards = useSessionStore((s) => s.boards);
+  const focusedBoardId = useSessionStore((s) => s.focusedBoardId);
+  const me = useSessionStore((s) => s.me);
+  const penBoards = useSessionStore((s) => s.penBoards);
+  const followingHost = useFollowHostStore((s) => s.followingHost);
+  const setFollowingHost = useFollowHostStore((s) => s.setFollowingHost);
   const [showCreate, setShowCreate] = useState(false);
   const isHost = me?.role === "host";
 

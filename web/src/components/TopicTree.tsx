@@ -20,7 +20,11 @@ import { Plus } from "lucide-react";
 import { AddTopicModal } from "./AddTopicModal";
 
 export function TopicTree() {
-  const { topics, activeTopicId, me, optimisticAddTopic, optimisticMoveTopic } = useSessionStore();
+  const topics = useSessionStore((s) => s.topics);
+  const activeTopicId = useSessionStore((s) => s.activeTopicId);
+  const me = useSessionStore((s) => s.me);
+  const optimisticAddTopic = useSessionStore((s) => s.optimisticAddTopic);
+  const optimisticMoveTopic = useSessionStore((s) => s.optimisticMoveTopic);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const isHost = me?.role === "host";

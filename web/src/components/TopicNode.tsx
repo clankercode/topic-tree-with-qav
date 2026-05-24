@@ -20,7 +20,8 @@ export function TopicNode({
   onStartEdit,
   onEndEdit,
 }: TopicNodeProps) {
-  const { me, optimisticRenameTopic } = useSessionStore();
+  const me = useSessionStore((s) => s.me);
+  const optimisticRenameTopic = useSessionStore((s) => s.optimisticRenameTopic);
   const isHost = me?.role === "host";
   const isDone = topic.status === "done";
 

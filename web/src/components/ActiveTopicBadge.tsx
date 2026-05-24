@@ -1,7 +1,8 @@
 import { useSessionStore } from "../store";
 
 export function ActiveTopicBadge() {
-  const { topics, activeTopicId } = useSessionStore();
+  const topics = useSessionStore((s) => s.topics);
+  const activeTopicId = useSessionStore((s) => s.activeTopicId);
 
   const activeTopic = topics.find((t) => t.id === activeTopicId);
   if (!activeTopic) return null;
