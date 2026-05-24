@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Board, Guest, PenBoardContent, PenText, Question, RoomSnapshot, RoomSummary, Topic } from "../ws/types";
+import type { Board, ExcalidrawBoard, FatBoard, Guest, PenBoardContent, PenText, Question, RoomSnapshot, RoomSummary, Topic } from "../ws/types";
 import type { Role } from "../proto/generated";
 
 export interface Me {
@@ -22,7 +22,7 @@ export interface SessionState {
   activeTopicId: string | null;
   questions: Question[];
   myVotes: Set<string>;
-  boards: Board[];
+  boards: FatBoard[];
   focusedBoardId: string | null;
   penBoards: Map<string, PenBoardContent>;
   penInProgressStrokes: Map<string, { color: string; size: number; points: [number, number, number][] }>;
@@ -35,6 +35,12 @@ export interface SessionState {
   applyQuestionUpdated(question: Question, seq: bigint): void;
   applyQuestionDeleted(questionId: string, seq: bigint): void;
   applyVoteUpdated(questionId: string, voteCount: number, voterGuestId: string, seq: bigint): void;
+  applyBoardCreated(board: Board, seq: bigint): void;
+  applyBoardUpdated(board: Board, seq: bigint): void;
+  applyBoardDeleted(boardId: string, seq: bigint): void;
+  applyFocusedBoardChanged(boardId: string, seq: bigint): void;
+  applyExcalidrawDelta(boardId: string, sceneVersion: number, elements: unknown[], appState: unknown, seq: bigint): void;
+  applyExcalidrawSceneReset(boardId: string, sceneVersion: number, elements: unknown[], appState: unknown, seq: bigint): void;
   applyPenStrokeBegun(boardId: string, strokeId: string, color: string, size: number): void;
   applyPenStrokeAppended(boardId: string, strokeId: string, points: [number, number, number][]): void;
   applyPenStrokeEnded(boardId: string, strokeId: string): void;
@@ -79,6 +85,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       activeTopicId: snapshot.activeTopicId,
       questions: snapshot.questions,
       myVotes: new Set(snapshot.myVotes),
+      boards: snapshot.boards as FatBoard[],
       focusedBoardId: snapshot.focusedBoardId,
       lastSeq: seq,
       pendingOps: new Map(),
@@ -162,6 +169,51 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         lastSeq: seq,
       };
     });
+  },
+  applyBoardCreated(board, seq) {
+    set((state) => {
+      const existing = state.boards.findIndex((b) => b.id === board.id);
+      if (existing >= 0) {
+        const newBoards = [...state.boards];
+        newBoards[existing] = { ...newBoards[existing], ...board } as FatBoard;
+        return { boards: newBoards, lastSeq: seq };
+      }
+      return { boards: [...state.boards, board as FatBoard], lastSeq: seq };
+    });
+  },
+  applyBoardUpdated(board, seq) {
+    set((state) => ({
+      boards: state.boards.map((b) => b.id === board.id ? { ...b, ...board } as FatBoard : b),
+      lastSeq: seq,
+    }));
+  },
+  applyBoardDeleted(boardId, seq) {
+    set((state) => ({
+      boards: state.boards.filter((b) => b.id !== boardId),
+      focusedBoardId: state.focusedBoardId === boardId ? null : state.focusedBoardId,
+      lastSeq: seq,
+    }));
+  },
+  applyFocusedBoardChanged(boardId, seq) {
+    set({ focusedBoardId: boardId, lastSeq: seq });
+  },
+  applyExcalidrawDelta(boardId, sceneVersion, elements, appState, seq) {
+    set((state) => ({
+      boards: state.boards.map((b) => {
+        if (b.id !== boardId || b.kind !== "excalidraw") return b;
+        return { ...b, sceneVersion, elements, appState } as ExcalidrawBoard;
+      }),
+      lastSeq: seq,
+    }));
+  },
+  applyExcalidrawSceneReset(boardId, sceneVersion, elements, appState, seq) {
+    set((state) => ({
+      boards: state.boards.map((b) => {
+        if (b.id !== boardId || b.kind !== "excalidraw") return b;
+        return { ...b, sceneVersion, elements, appState } as ExcalidrawBoard;
+      }),
+      lastSeq: seq,
+    }));
   },
   applyPenStrokeBegun(boardId, strokeId, color, size) {
     set((state) => {

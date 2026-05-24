@@ -16,9 +16,10 @@ use dashmap::DashMap;
 use tokio::sync::broadcast;
 
 use crate::proto::{
-    Board, BoardKind, Guest, PenText, Presence, Question, RoomSnapshot, RoomSummary, ServerMsg,
-    Topic, TopicStatus, You,
+    Board, BoardKind, ExcalidrawScene, Guest, Presence, Question, RoomSnapshot, RoomSummary,
+    ServerMsg, Topic, TopicStatus, You,
 };
+use serde_json::Value as JsonValue;
 
 /// Broadcast channel capacity per room. If a writer lags more than this
 /// many messages, its receiver receives `RecvError::Lagged` and the
@@ -30,43 +31,6 @@ pub type GuestId = String;
 pub type TopicId = String;
 pub type QuestionId = String;
 pub type BoardId = String;
-pub type StrokeId = String;
-pub type TextId = String;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct PenStroke {
-    pub id: StrokeId,
-    pub color: String,
-    pub size: f64,
-    pub points: Vec<[f32; 3]>,
-    pub ord: u32,
-    pub created_at: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct PenBoardState {
-    pub strokes: Vec<PenStroke>,
-    pub texts: Vec<PenText>,
-    pub action_log: Vec<PenAction>,
-    pub next_stroke_ord: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PenActionKind {
-    StrokeBegin,
-    TextSet,
-    TextDelete,
-    Clear,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct PenAction {
-    pub id: String,
-    pub kind: PenActionKind,
-    pub target_id: Option<String>,
-    pub ord: u32,
-    pub created_at: i64,
-}
 
 #[derive(Debug, Clone)]
 pub struct PresenceEntry {
@@ -114,8 +78,8 @@ struct RoomInner {
     questions: BTreeMap<QuestionId, Question>,
     vote_index: HashMap<QuestionId, HashSet<GuestId>>,
     boards: BTreeMap<BoardId, Board>,
+    excalidraw_scenes: BTreeMap<BoardId, ExcalidrawScene>,
     focused_board_id: Option<BoardId>,
-    pen_boards: HashMap<BoardId, PenBoardState>,
 }
 
 impl Room {
@@ -133,8 +97,8 @@ impl Room {
                 questions: BTreeMap::new(),
                 vote_index: HashMap::new(),
                 boards: BTreeMap::new(),
+                excalidraw_scenes: BTreeMap::new(),
                 focused_board_id: None,
-                pen_boards: HashMap::new(),
             }),
             broadcast: tx,
         }
@@ -390,8 +354,6 @@ impl Room {
         }
     }
 
-    // ───────────────────────────── boards ─────────────────────────────
-
     pub fn boards(&self) -> Vec<Board> {
         let g = self.inner.lock().expect("room inner");
         g.boards.values().cloned().collect()
@@ -402,201 +364,104 @@ impl Room {
         g.focused_board_id.clone()
     }
 
-    pub fn set_focused_board(&self, board_id: Option<BoardId>) {
-        let mut g = self.inner.lock().expect("room inner");
-        g.focused_board_id = board_id;
-    }
-
-    pub fn add_board(&self, board: Board) {
-        let mut g = self.inner.lock().expect("room inner");
-        g.boards.insert(board.id.clone(), board.clone());
-        if board.kind == BoardKind::Pen {
-            g.pen_boards.entry(board.id.clone()).or_default();
-        }
-    }
-
-    pub fn get_pen_board_state(&self, board_id: &str) -> Option<PenBoardState> {
+    pub fn board_exists(&self, board_id: &str) -> bool {
         let g = self.inner.lock().expect("room inner");
-        g.pen_boards.get(board_id).cloned()
+        g.boards.contains_key(board_id)
     }
 
-    pub fn pen_begin_stroke(
-        &self,
-        board_id: &str,
-        stroke_id: StrokeId,
-        color: String,
-        size: f64,
-        now: i64,
-    ) -> Option<PenStroke> {
+    pub fn create_board(&self, board: Board, _created_at: i64) {
         let mut g = self.inner.lock().expect("room inner");
-        let state = g.pen_boards.get_mut(board_id)?;
-        let ord = state.next_stroke_ord;
-        state.next_stroke_ord += 1;
-        let stroke = PenStroke {
-            id: stroke_id.clone(),
-            color: color.clone(),
-            size,
-            points: Vec::new(),
-            ord,
-            created_at: now,
-        };
-        state.strokes.push(stroke.clone());
-        let action = PenAction {
-            id: uuid::Uuid::new_v4().to_string(),
-            kind: PenActionKind::StrokeBegin,
-            target_id: Some(stroke_id),
-            ord: state.action_log.len() as u32 + 1,
-            created_at: now,
-        };
-        state.action_log.push(action);
-        Some(stroke)
-    }
-
-    pub fn pen_append_points(
-        &self,
-        board_id: &str,
-        stroke_id: &str,
-        points: Vec<[f32; 3]>,
-    ) -> bool {
-        let mut g = self.inner.lock().expect("room inner");
-        let state = match g.pen_boards.get_mut(board_id) {
-            Some(s) => s,
-            None => return false,
-        };
-        let stroke = match state.strokes.iter_mut().find(|s| s.id == stroke_id) {
-            Some(s) => s,
-            None => return false,
-        };
-        stroke.points.extend(points);
-        true
-    }
-
-    pub fn pen_end_stroke(&self, board_id: &str, stroke_id: &str) -> bool {
-        let mut g = self.inner.lock().expect("room inner");
-        let state = match g.pen_boards.get_mut(board_id) {
-            Some(s) => s,
-            None => return false,
-        };
-        if let Some(idx) = state.strokes.iter().position(|s| s.id == stroke_id) {
-            state.strokes[idx].ord = state.next_stroke_ord;
-            state.next_stroke_ord += 1;
-            true
-        } else {
-            false
+        if board.kind == BoardKind::Excalidraw {
+            g.excalidraw_scenes.insert(
+                board.id.clone(),
+                ExcalidrawScene {
+                    board_id: board.id.clone(),
+                    scene_version: 0,
+                    elements: JsonValue::Array(vec![]),
+                    app_state: JsonValue::Object(serde_json::Map::new()),
+                },
+            );
         }
+        g.boards.insert(board.id.clone(), board);
     }
 
-    pub fn pen_text_upsert(&self, board_id: &str, text: PenText, now: i64) -> bool {
+    pub fn rename_board(&self, board_id: &str, title: String) -> Option<Board> {
         let mut g = self.inner.lock().expect("room inner");
-        let state = match g.pen_boards.get_mut(board_id) {
-            Some(s) => s,
-            None => return false,
-        };
-        let text_id = text.id.clone();
-        if let Some(idx) = state.texts.iter().position(|t| t.id == text.id) {
-            state.texts[idx] = text;
-        } else {
-            state.texts.push(text);
-        }
-        let action = PenAction {
-            id: uuid::Uuid::new_v4().to_string(),
-            kind: PenActionKind::TextSet,
-            target_id: Some(text_id),
-            ord: state.action_log.len() as u32 + 1,
-            created_at: now,
-        };
-        state.action_log.push(action);
-        true
+        let board = g.boards.get_mut(board_id)?;
+        board.title = title;
+        Some(board.clone())
     }
 
-    pub fn pen_text_delete(&self, board_id: &str, text_id: &str, now: i64) -> bool {
+    pub fn delete_board(&self, board_id: &str) -> bool {
         let mut g = self.inner.lock().expect("room inner");
-        let state = match g.pen_boards.get_mut(board_id) {
-            Some(s) => s,
-            None => return false,
-        };
-        let pos = state.texts.iter().position(|t| t.id == text_id);
-        if pos.is_none() {
+        if g.boards.remove(board_id).is_none() {
             return false;
         }
-        let removed = state.texts.remove(pos.unwrap());
-        let action = PenAction {
-            id: uuid::Uuid::new_v4().to_string(),
-            kind: PenActionKind::TextDelete,
-            target_id: Some(removed.id),
-            ord: state.action_log.len() as u32 + 1,
-            created_at: now,
-        };
-        state.action_log.push(action);
-        true
-    }
-
-    pub fn pen_clear(&self, board_id: &str, now: i64) -> bool {
-        let mut g = self.inner.lock().expect("room inner");
-        let state = match g.pen_boards.get_mut(board_id) {
-            Some(s) => s,
-            None => return false,
-        };
-        state.strokes.clear();
-        state.texts.clear();
-        let action = PenAction {
-            id: uuid::Uuid::new_v4().to_string(),
-            kind: PenActionKind::Clear,
-            target_id: None,
-            ord: state.action_log.len() as u32 + 1,
-            created_at: now,
-        };
-        state.action_log.push(action);
-        true
-    }
-
-    pub fn pen_undo(&self, board_id: &str) -> Option<(Option<StrokeId>, Option<TextId>)> {
-        let mut g = self.inner.lock().expect("room inner");
-        let state = g.pen_boards.get_mut(board_id)?;
-        let action = state.action_log.pop()?;
-        match action.kind {
-            PenActionKind::StrokeBegin => {
-                let stroke_id = action.target_id?;
-                state.strokes.retain(|s| s.id != stroke_id);
-                Some((Some(stroke_id), None))
-            }
-            PenActionKind::TextSet => {
-                let text_id = action.target_id?;
-                state.texts.retain(|t| t.id != text_id);
-                Some((None, Some(text_id)))
-            }
-            PenActionKind::TextDelete | PenActionKind::Clear => None,
+        g.excalidraw_scenes.remove(board_id);
+        if g.focused_board_id.as_deref() == Some(board_id) {
+            g.focused_board_id = None;
         }
+        true
     }
 
-    pub fn load_boards(&self, boards: Vec<Board>) {
+    pub fn set_focused_board(&self, board_id: String) {
+        let mut g = self.inner.lock().expect("room inner");
+        g.focused_board_id = Some(board_id);
+    }
+
+    pub fn update_excalidraw_scene(
+        &self,
+        board_id: &str,
+        scene_version: u64,
+        elements: JsonValue,
+        app_state: JsonValue,
+        _updated_at: i64,
+    ) -> bool {
+        let mut g = self.inner.lock().expect("room inner");
+        let board = g.boards.get(board_id);
+        if board.is_none() || board.as_ref().map(|b| &b.kind) != Some(&BoardKind::Excalidraw) {
+            return false;
+        }
+        let scene = g.excalidraw_scenes.entry(board_id.to_string()).or_insert_with(|| {
+            ExcalidrawScene {
+                board_id: board_id.to_string(),
+                scene_version: 0,
+                elements: JsonValue::Array(vec![]),
+                app_state: JsonValue::Object(serde_json::Map::new()),
+            }
+        });
+        scene.scene_version = scene_version;
+        scene.elements = elements;
+        scene.app_state = app_state;
+        true
+    }
+
+    pub fn get_excalidraw_scene(&self, board_id: &str) -> Option<ExcalidrawScene> {
+        let g = self.inner.lock().expect("room inner");
+        g.excalidraw_scenes.get(board_id).cloned()
+    }
+
+    pub fn load_boards(
+        &self,
+        boards: Vec<Board>,
+        excalidraw_scenes: Vec<ExcalidrawScene>,
+        focused_board_id: Option<String>,
+    ) {
         let mut g = self.inner.lock().expect("room inner");
         g.boards.clear();
+        g.excalidraw_scenes.clear();
         for b in boards {
             g.boards.insert(b.id.clone(), b);
         }
-    }
-
-    pub fn load_pen_board_state(
-        &self,
-        board_id: &str,
-        strokes: Vec<PenStroke>,
-        texts: Vec<PenText>,
-    ) {
-        let mut g = self.inner.lock().expect("room inner");
-        let max_stroke_ord = strokes.iter().map(|s| s.ord).max().unwrap_or(0);
-        let state = PenBoardState {
-            strokes,
-            texts,
-            action_log: Vec::new(),
-            next_stroke_ord: max_stroke_ord + 1,
-        };
-        g.pen_boards.insert(board_id.to_string(), state);
+        for s in excalidraw_scenes {
+            g.excalidraw_scenes.insert(s.board_id.clone(), s);
+        }
+        g.focused_board_id = focused_board_id;
     }
 
     /// Build the Welcome snapshot for a given client.
     pub fn snapshot_for(&self, you: You, my_guest_id: &str) -> RoomSnapshot {
-        let (guests, presence, topics, active_topic_id, questions, seq) = {
+        let (guests, presence, topics, active_topic_id, questions, boards, focused_board_id, seq) = {
             let g = self.inner.lock().expect("room inner");
             let questions: Vec<Question> = g.questions.values().cloned().collect();
             let my_votes: Vec<String> = g
@@ -604,6 +469,27 @@ impl Room {
                 .iter()
                 .filter(|(_, voters)| voters.contains(my_guest_id))
                 .map(|(qid, _)| qid.clone())
+                .collect();
+            let boards: Vec<JsonValue> = g
+                .boards
+                .values()
+                .map(|b| {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("id".to_string(), serde_json::Value::String(b.id.clone()));
+                    obj.insert("kind".to_string(), match b.kind {
+                        BoardKind::Pen => serde_json::Value::String("pen".to_string()),
+                        BoardKind::Excalidraw => serde_json::Value::String("excalidraw".to_string()),
+                    });
+                    obj.insert("title".to_string(), serde_json::Value::String(b.title.clone()));
+                    obj.insert("createdAt".to_string(), serde_json::Value::Number(b.created_at.into()));
+                    obj.insert("ord".to_string(), serde_json::json!(b.ord));
+                    if let Some(scene) = g.excalidraw_scenes.get(&b.id) {
+                        obj.insert("sceneVersion".to_string(), serde_json::Value::Number(scene.scene_version.into()));
+                        obj.insert("elements".to_string(), scene.elements.clone());
+                        obj.insert("appState".to_string(), scene.app_state.clone());
+                    }
+                    serde_json::Value::Object(obj)
+                })
                 .collect();
             (
                 g.presence
@@ -617,6 +503,8 @@ impl Room {
                 g.topics.values().cloned().collect::<Vec<_>>(),
                 g.active_topic_id.clone(),
                 (questions, my_votes),
+                boards,
+                g.focused_board_id.clone(),
                 g.seq,
             )
         };
@@ -634,8 +522,8 @@ impl Room {
             active_topic_id,
             questions,
             my_votes,
-            boards: vec![],
-            focused_board_id: None,
+            boards,
+            focused_board_id,
             hands: vec![],
             seq,
         }

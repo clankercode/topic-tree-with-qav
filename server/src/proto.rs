@@ -47,33 +47,6 @@ pub enum TopicStatus {
     Done,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "ts-gen", derive(TS))]
-#[cfg_attr(
-    feature = "ts-gen",
-    ts(export, export_to = "../../web/src/proto/generated.ts")
-)]
-#[serde(rename_all = "camelCase")]
-pub struct Presence {
-    pub guest_id: String,
-    pub display_name: String,
-    pub muted: bool,
-    pub joined_at: i64,
-    pub client_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "ts-gen", derive(TS))]
-#[cfg_attr(
-    feature = "ts-gen",
-    ts(export, export_to = "../../web/src/proto/generated.ts")
-)]
-#[serde(rename_all = "camelCase")]
-pub enum BoardKind {
-    Pen,
-    Excalidraw,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "ts-gen", derive(TS))]
 #[cfg_attr(
@@ -81,45 +54,13 @@ pub enum BoardKind {
     ts(export, export_to = "../../web/src/proto/generated.ts")
 )]
 #[serde(rename_all = "camelCase")]
-pub struct Board {
+pub struct Topic {
     pub id: String,
-    pub kind: BoardKind,
+    pub parent_id: Option<String>,
     pub title: String,
     pub ord: f64,
+    pub status: TopicStatus,
     pub created_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(feature = "ts-gen", derive(TS))]
-#[cfg_attr(
-    feature = "ts-gen",
-    ts(export, export_to = "../../web/src/proto/generated.ts")
-)]
-#[serde(rename_all = "camelCase")]
-pub struct PenText {
-    pub id: String,
-    pub x: f64,
-    pub y: f64,
-    pub text: String,
-    pub font_size: f64,
-    pub color: String,
-    pub updated_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(feature = "ts-gen", derive(TS))]
-#[cfg_attr(
-    feature = "ts-gen",
-    ts(export, export_to = "../../web/src/proto/generated.ts")
-)]
-#[serde(rename_all = "camelCase")]
-pub struct PenStrokeSummary {
-    pub id: String,
-    pub color: String,
-    pub size: f64,
-    pub points: Vec<[f32; 3]>,
-    pub created_at: i64,
-    pub ord: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -143,22 +84,6 @@ pub struct Guest {
     ts(export, export_to = "../../web/src/proto/generated.ts")
 )]
 #[serde(rename_all = "camelCase")]
-pub struct Topic {
-    pub id: String,
-    pub parent_id: Option<String>,
-    pub title: String,
-    pub ord: f64,
-    pub status: TopicStatus,
-    pub created_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[cfg_attr(feature = "ts-gen", derive(TS))]
-#[cfg_attr(
-    feature = "ts-gen",
-    ts(export, export_to = "../../web/src/proto/generated.ts")
-)]
-#[serde(rename_all = "camelCase")]
 pub struct Question {
     pub id: String,
     pub room_id: String,
@@ -169,6 +94,57 @@ pub struct Question {
     pub answered: bool,
     pub created_at: i64,
     pub vote_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub struct Presence {
+    pub guest_id: String,
+    pub display_name: String,
+    pub muted: bool,
+    pub joined_at: i64,
+    pub client_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub enum BoardKind {
+    Pen,
+    Excalidraw,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub struct Board {
+    pub id: String,
+    pub kind: BoardKind,
+    pub title: String,
+    pub created_at: i64,
+    pub ord: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExcalidrawScene {
+    pub board_id: String,
+    pub scene_version: u64,
+    pub elements: JsonValue,
+    pub app_state: JsonValue,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -340,60 +316,43 @@ pub enum ClientMsg {
         id: Option<String>,
         question_id: String,
     },
-    PenStrokeBegin {
+    CreateBoard {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        kind: BoardKind,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+    },
+    RenameBoard {
         v: u8,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         board_id: String,
-        stroke_id: String,
-        color: String,
-        size: f64,
+        title: String,
     },
-    PenStrokeAppend {
-        v: u8,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        board_id: String,
-        stroke_id: String,
-        points: Vec<[f32; 3]>,
-    },
-    PenStrokeEnd {
-        v: u8,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        board_id: String,
-        stroke_id: String,
-    },
-    PenTextSet {
-        v: u8,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        board_id: String,
-        text_id: String,
-        x: f64,
-        y: f64,
-        text: String,
-        font_size: f64,
-        color: String,
-    },
-    PenTextDelete {
-        v: u8,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        board_id: String,
-        text_id: String,
-    },
-    PenClear {
+    DeleteBoard {
         v: u8,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         board_id: String,
     },
-    PenUndo {
+    SetFocusedBoard {
         v: u8,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         board_id: String,
+    },
+    ExcalidrawUpdate {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        scene_version: u64,
+        #[cfg_attr(feature = "ts-gen", ts(type = "unknown[]"))]
+        elements: JsonValue,
+        #[cfg_attr(feature = "ts-gen", ts(type = "unknown"))]
+        app_state: JsonValue,
     },
 }
 
@@ -483,58 +442,51 @@ pub enum ServerMsg {
         vote_count: u32,
         voter_guest_id: String,
     },
-    PenStrokeBegun {
+    BoardCreated {
         v: u8,
         ts: i64,
         seq: u64,
-        board_id: String,
-        stroke_id: String,
-        color: String,
-        size: f64,
-        author_client_id: String,
+        board: Board,
     },
-    PenStrokeAppended {
+    BoardUpdated {
         v: u8,
         ts: i64,
         seq: u64,
-        board_id: String,
-        stroke_id: String,
-        points: Vec<[f32; 3]>,
+        board: Board,
     },
-    PenStrokeEnded {
-        v: u8,
-        ts: i64,
-        seq: u64,
-        board_id: String,
-        stroke_id: String,
-    },
-    PenTextUpserted {
-        v: u8,
-        ts: i64,
-        seq: u64,
-        board_id: String,
-        text: PenText,
-    },
-    PenTextDeleted {
-        v: u8,
-        ts: i64,
-        seq: u64,
-        board_id: String,
-        text_id: String,
-    },
-    PenCleared {
+    BoardDeleted {
         v: u8,
         ts: i64,
         seq: u64,
         board_id: String,
     },
-    PenUndone {
+    FocusedBoardChanged {
         v: u8,
         ts: i64,
         seq: u64,
         board_id: String,
-        removed_stroke_id: Option<String>,
-        removed_text_id: Option<String>,
+    },
+    ExcalidrawDelta {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        scene_version: u64,
+        #[cfg_attr(feature = "ts-gen", ts(type = "unknown[]"))]
+        elements: JsonValue,
+        #[cfg_attr(feature = "ts-gen", ts(type = "unknown"))]
+        app_state: JsonValue,
+    },
+    ExcalidrawSceneReset {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        scene_version: u64,
+        #[cfg_attr(feature = "ts-gen", ts(type = "unknown[]"))]
+        elements: JsonValue,
+        #[cfg_attr(feature = "ts-gen", ts(type = "unknown"))]
+        app_state: JsonValue,
     },
 }
 
@@ -561,16 +513,14 @@ mod proto_export_tests {
     fn proto_export() {
         Role::export().expect("export Role");
         TopicStatus::export().expect("export TopicStatus");
-        BoardKind::export().expect("export BoardKind");
         Topic::export().expect("export Topic");
         You::export().expect("export You");
         Guest::export().expect("export Guest");
         Presence::export().expect("export Presence");
         Question::export().expect("export Question");
-        Board::export().expect("export Board");
-        PenText::export().expect("export PenText");
-        PenStrokeSummary::export().expect("export PenStrokeSummary");
         RoomSummary::export().expect("export RoomSummary");
+        BoardKind::export().expect("export BoardKind");
+        Board::export().expect("export Board");
         RoomSnapshot::export().expect("export RoomSnapshot");
         ClientMsg::export().expect("export ClientMsg");
         ServerMsg::export().expect("export ServerMsg");
@@ -884,6 +834,137 @@ mod tests {
         assert!(s.contains("\"questionId\":\"q1\""));
         assert!(s.contains("\"voteCount\":5"));
         assert!(s.contains("\"voterGuestId\":\"g1\""));
+        let _back: ServerMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn board_kind_round_trips() {
+        let pen = BoardKind::Pen;
+        let exc = BoardKind::Excalidraw;
+        let ps = serde_json::to_string(&pen).unwrap();
+        let es = serde_json::to_string(&exc).unwrap();
+        assert_eq!(ps, "\"pen\"");
+        assert_eq!(es, "\"excalidraw\"");
+        let _pp: BoardKind = serde_json::from_str(&ps).unwrap();
+        let _ep: BoardKind = serde_json::from_str(&es).unwrap();
+    }
+
+    #[test]
+    fn board_struct_round_trips() {
+        let b = Board {
+            id: "b1".into(),
+            kind: BoardKind::Excalidraw,
+            title: "My Board".into(),
+            created_at: 12345,
+            ord: 1.0,
+        };
+        let s = serde_json::to_string(&b).unwrap();
+        assert!(s.contains("\"id\":\"b1\""));
+        assert!(s.contains("\"kind\":\"excalidraw\""));
+        assert!(s.contains("\"title\":\"My Board\""));
+        let _back: Board = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn create_board_round_trips() {
+        let msg = ClientMsg::CreateBoard {
+            v: 1,
+            id: Some("c1".into()),
+            kind: BoardKind::Excalidraw,
+            title: Some("Test".into()),
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"CreateBoard\""));
+        assert!(s.contains("\"kind\":\"excalidraw\""));
+        let _back: ClientMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn excalidraw_update_round_trips() {
+        use serde_json::json;
+        let msg = ClientMsg::ExcalidrawUpdate {
+            v: 1,
+            id: Some("c1".into()),
+            board_id: "b1".into(),
+            scene_version: 5,
+            elements: json!([]),
+            app_state: json!({}),
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"ExcalidrawUpdate\""));
+        assert!(s.contains("\"boardId\":\"b1\""));
+        assert!(s.contains("\"sceneVersion\":5"));
+        let _back: ClientMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn excalidraw_delta_round_trips() {
+        use serde_json::json;
+        let msg = ServerMsg::ExcalidrawDelta {
+            v: 1,
+            ts: 100,
+            seq: 9,
+            board_id: "b1".into(),
+            scene_version: 5,
+            elements: json!([]),
+            app_state: json!({}),
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"ExcalidrawDelta\""));
+        assert!(s.contains("\"boardId\":\"b1\""));
+        let _back: ServerMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn excalidraw_scene_reset_round_trips() {
+        use serde_json::json;
+        let msg = ServerMsg::ExcalidrawSceneReset {
+            v: 1,
+            ts: 100,
+            seq: 10,
+            board_id: "b1".into(),
+            scene_version: 7,
+            elements: json!([]),
+            app_state: json!({}),
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"ExcalidrawSceneReset\""));
+        assert!(s.contains("\"boardId\":\"b1\""));
+        let _back: ServerMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn board_created_round_trips() {
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen Board".into(),
+            created_at: 12345,
+            ord: 1.0,
+        };
+        let msg = ServerMsg::BoardCreated {
+            v: 1,
+            ts: 100,
+            seq: 11,
+            board,
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"BoardCreated\""));
+        assert!(s.contains("\"id\":\"b1\""));
+        let _back: ServerMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn focused_board_changed_round_trips() {
+        let msg = ServerMsg::FocusedBoardChanged {
+            v: 1,
+            ts: 100,
+            seq: 12,
+            board_id: "b1".into(),
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"FocusedBoardChanged\""));
+        assert!(s.contains("\"boardId\":\"b1\""));
         let _back: ServerMsg = serde_json::from_str(&s).unwrap();
     }
 }

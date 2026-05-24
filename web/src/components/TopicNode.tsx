@@ -1,11 +1,9 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Check, GripVertical, Plus, Trash2, ChevronRight, ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { Check, GripVertical } from "lucide-react";
 import { useSessionStore } from "../store";
 import { sendWsMsg } from "../ws/manager";
 import type { Topic } from "../ws/types";
-import { cn } from "../lib/utils";
 
 interface TopicNodeProps {
   topic: Topic;
@@ -13,12 +11,6 @@ interface TopicNodeProps {
   isEditing: boolean;
   onStartEdit: () => void;
   onEndEdit: () => void;
-  onDelete?: (() => void) | null;
-  showAddChild?: boolean;
-  onAddChild?: (() => void) | null;
-  hasChildren?: boolean;
-  isExpanded?: boolean;
-  onToggleExpand?: () => void;
 }
 
 export function TopicNode({
@@ -27,19 +19,10 @@ export function TopicNode({
   isEditing,
   onStartEdit,
   onEndEdit,
-  onDelete,
-  showAddChild,
-  onAddChild,
-  hasChildren,
-  isExpanded,
-  onToggleExpand,
 }: TopicNodeProps) {
-  const { me, optimisticRenameTopic } = useSessionStore();
+  const { me } = useSessionStore();
   const isHost = me?.role === "host";
   const isDone = topic.status === "done";
-  const [internalExpanded, setInternalExpanded] = useState(true);
-  const expanded = isExpanded !== undefined ? isExpanded : internalExpanded;
-  const toggleExpand = onToggleExpand || (() => setInternalExpanded(!internalExpanded));
 
   const {
     attributes,
@@ -76,7 +59,6 @@ export function TopicNode({
 
   function handleRename(newTitle: string) {
     if (!isHost || !newTitle.trim()) return;
-    optimisticRenameTopic(topic.id, newTitle.trim());
     sendWsMsg({
       v: 1,
       type: "RenameTopic",
@@ -87,27 +69,15 @@ export function TopicNode({
   }
 
   return (
-    <div
+    <li
       ref={setNodeRef}
       style={style}
-      className={cn(
-        "flex items-center gap-2",
-        isDragging && "opacity-50 shadow-lg",
-        isActive && "font-medium",
-        isDone && "opacity-60",
-      )}
+      className={`flex items-center gap-2 rounded border border-[rgb(var(--border))] bg-[rgb(var(--background))] px-3 py-2 ${
+        isDragging ? "opacity-50 shadow-lg" : ""
+      } ${isActive ? "border-[rgb(var(--primary))] ring-2 ring-[rgb(var(--primary))]" : ""} ${
+        isDone ? "opacity-60" : ""
+      }`}
     >
-      {hasChildren && (
-        <button
-          onClick={toggleExpand}
-          className="flex h-5 w-5 items-center justify-center text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))]"
-          aria-label={expanded ? "Collapse" : "Expand"}
-        >
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </button>
-      )}
-      {!hasChildren && <span className="h-5 w-5" />}
-
       {isHost && (
         <button
           {...attributes}
@@ -149,7 +119,7 @@ export function TopicNode({
         />
       ) : (
         <span
-          className={cn("flex-1 cursor-pointer text-sm", isDone && "text-[rgb(var(--muted))] line-through")}
+          className={`flex-1 cursor-pointer text-sm ${isDone ? "text-[rgb(var(--muted))] line-through" : ""}`}
           onClick={!isHost && !isDone ? handleSetActive : undefined}
         >
           {topic.title}
@@ -175,27 +145,6 @@ export function TopicNode({
           Rename
         </button>
       )}
-
-      {isHost && showAddChild && onAddChild && (
-        <button
-          onClick={onAddChild}
-          className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-[rgb(var(--muted))] hover:bg-[rgb(var(--border))] hover:text-[rgb(var(--foreground))]"
-          aria-label="Add subtopic"
-        >
-          <Plus size={12} />
-          Sub
-        </button>
-      )}
-
-      {isHost && onDelete && (
-        <button
-          onClick={onDelete}
-          className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-[rgb(var(--muted))] hover:bg-red-500/20 hover:text-red-500"
-          aria-label="Delete topic"
-        >
-          <Trash2 size={12} />
-        </button>
-      )}
-    </div>
+    </li>
   );
 }

@@ -34,7 +34,8 @@ use uuid::Uuid;
 use crate::api::now_ms;
 use crate::auth::verify_admin_token;
 use crate::proto::{
-    error_codes, ClientMsg, Question, Role, ServerMsg, Topic, TopicStatus, You, PROTOCOL_VERSION,
+    error_codes, ClientMsg, Question, Role, ServerMsg, Topic, TopicStatus,
+    You, PROTOCOL_VERSION,
 };
 use crate::room::Room;
 use crate::state::AppState;
@@ -952,12 +953,10 @@ async fn handle_text(
             }
             Ok(())
         }
-        ClientMsg::PenStrokeBegin {
+        ClientMsg::CreateBoard {
             id,
-            board_id,
-            stroke_id,
-            color,
-            size,
+            kind,
+            title,
             ..
         } => {
             if role != Role::Host {
@@ -968,112 +967,88 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
+            let title = title.unwrap_or_else(|| "Untitled".into());
+            if title.is_empty() || title.len() > 200 {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "title must be 1..=200 chars",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            let board_id = Uuid::new_v4().to_string();
             let now = now_ms();
-            if room
-                .pen_begin_stroke(&board_id, stroke_id.clone(), color.clone(), size, now)
-                .is_some()
-            {
-                broadcast_pen_stroke_begun(room, &board_id, &stroke_id, &color, size, client_id);
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PenStrokeAppend {
-            id,
-            board_id,
-            stroke_id,
-            points,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            if room.pen_append_points(&board_id, &stroke_id, points.clone()) {
-                broadcast_pen_stroke_appended(room, &board_id, &stroke_id, points);
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PenStrokeEnd {
-            id,
-            board_id,
-            stroke_id,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            if room.pen_end_stroke(&board_id, &stroke_id) {
-                broadcast_pen_stroke_ended(room, &board_id, &stroke_id);
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PenTextSet {
-            id,
-            board_id,
-            text_id,
-            x,
-            y,
-            text,
-            font_size,
-            color,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let now = now_ms();
-            let pt = crate::proto::PenText {
-                id: text_id.clone(),
-                x,
-                y,
-                text: text.clone(),
-                font_size,
-                color: color.clone(),
-                updated_at: now,
+            let ord = room.boards().iter().map(|b| b.ord).fold(0.0, f64::max) + 1.0;
+            let board = crate::proto::Board {
+                id: board_id.clone(),
+                kind,
+                title,
+                created_at: now,
+                ord,
             };
-            if room.pen_text_upsert(&board_id, pt.clone(), now) {
-                broadcast_pen_text_upserted(room, &board_id, &pt);
+            room.create_board(board.clone(), now);
+            broadcast_board_created(room, &board);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::RenameBoard {
+            id,
+            board_id,
+            title,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let title = title.trim().to_string();
+            if title.is_empty() || title.len() > 200 {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "title must be 1..=200 chars",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            match room.rename_board(&board_id, title) {
+                Some(board) => {
+                    broadcast_board_updated(room, &board);
+                }
+                None => {
+                    let _ = send(
+                        sink,
+                        &error_frame(
+                            error_codes::BAD_REQUEST,
+                            "board not found",
+                            id,
+                            room.current_seq(),
+                        ),
+                    )
+                    .await;
+                    return Ok(());
+                }
             }
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
@@ -1086,10 +1061,89 @@ async fn handle_text(
             }
             Ok(())
         }
-        ClientMsg::PenTextDelete {
+        ClientMsg::DeleteBoard {
             id,
             board_id,
-            text_id,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            if !room.delete_board(&board_id) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "board not found",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            broadcast_board_deleted(room, &board_id);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::SetFocusedBoard {
+            id,
+            board_id,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            if !room.board_exists(&board_id) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "board not found",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            room.set_focused_board(board_id.clone());
+            broadcast_focused_board_changed(room, &board_id);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::ExcalidrawUpdate {
+            id,
+            board_id,
+            scene_version,
+            elements,
+            app_state,
             ..
         } => {
             if role != Role::Host {
@@ -1101,56 +1155,20 @@ async fn handle_text(
                 return Ok(());
             }
             let now = now_ms();
-            if room.pen_text_delete(&board_id, &text_id, now) {
-                broadcast_pen_text_deleted(room, &board_id, &text_id);
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PenClear { id, board_id, .. } => {
-            if role != Role::Host {
+            if !room.update_excalidraw_scene(&board_id, scene_version, elements.clone(), app_state.clone(), now) {
                 let _ = send(
                     sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "board not found or not an excalidraw board",
+                        id,
+                        room.current_seq(),
+                    ),
                 )
                 .await;
                 return Ok(());
             }
-            let now = now_ms();
-            if room.pen_clear(&board_id, now) {
-                broadcast_pen_cleared(room, &board_id);
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PenUndo { id, board_id, .. } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            if let Some((removed_stroke_id, removed_text_id)) = room.pen_undo(&board_id) {
-                broadcast_pen_undone(room, &board_id, removed_stroke_id, removed_text_id);
-            }
+            broadcast_excalidraw_delta(room, &board_id, scene_version, &elements, &app_state);
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -1242,107 +1260,87 @@ fn broadcast_vote_updated(
     let _ = room.broadcast.send(msg);
 }
 
-fn broadcast_pen_stroke_begun(
+fn broadcast_board_created(room: &Arc<Room>, board: &crate::proto::Board) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::BoardCreated {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board: board.clone(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_board_updated(room: &Arc<Room>, board: &crate::proto::Board) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::BoardUpdated {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board: board.clone(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_board_deleted(room: &Arc<Room>, board_id: &str) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::BoardDeleted {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board_id: board_id.to_string(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_focused_board_changed(room: &Arc<Room>, board_id: &str) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::FocusedBoardChanged {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board_id: board_id.to_string(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_excalidraw_delta(
     room: &Arc<Room>,
     board_id: &str,
-    stroke_id: &str,
-    color: &str,
-    size: f64,
-    author_client_id: &str,
+    scene_version: u64,
+    elements: &serde_json::Value,
+    app_state: &serde_json::Value,
 ) {
     let seq = room.next_seq();
-    let msg = ServerMsg::PenStrokeBegun {
+    let msg = ServerMsg::ExcalidrawDelta {
         v: PROTOCOL_VERSION,
         ts: now_ms(),
         seq,
         board_id: board_id.to_string(),
-        stroke_id: stroke_id.to_string(),
-        color: color.to_string(),
-        size,
-        author_client_id: author_client_id.to_string(),
+        scene_version,
+        elements: elements.clone(),
+        app_state: app_state.clone(),
     };
     let _ = room.broadcast.send(msg);
 }
 
-fn broadcast_pen_stroke_appended(
+#[allow(dead_code)]
+fn broadcast_excalidraw_scene_reset(
     room: &Arc<Room>,
     board_id: &str,
-    stroke_id: &str,
-    points: Vec<[f32; 3]>,
+    scene_version: u64,
+    elements: &serde_json::Value,
+    app_state: &serde_json::Value,
 ) {
     let seq = room.next_seq();
-    let msg = ServerMsg::PenStrokeAppended {
+    let msg = ServerMsg::ExcalidrawSceneReset {
         v: PROTOCOL_VERSION,
         ts: now_ms(),
         seq,
         board_id: board_id.to_string(),
-        stroke_id: stroke_id.to_string(),
-        points,
-    };
-    let _ = room.broadcast.send(msg);
-}
-
-fn broadcast_pen_stroke_ended(room: &Arc<Room>, board_id: &str, stroke_id: &str) {
-    let seq = room.next_seq();
-    let msg = ServerMsg::PenStrokeEnded {
-        v: PROTOCOL_VERSION,
-        ts: now_ms(),
-        seq,
-        board_id: board_id.to_string(),
-        stroke_id: stroke_id.to_string(),
-    };
-    let _ = room.broadcast.send(msg);
-}
-
-fn broadcast_pen_text_upserted(room: &Arc<Room>, board_id: &str, text: &crate::proto::PenText) {
-    let seq = room.next_seq();
-    let msg = ServerMsg::PenTextUpserted {
-        v: PROTOCOL_VERSION,
-        ts: now_ms(),
-        seq,
-        board_id: board_id.to_string(),
-        text: text.clone(),
-    };
-    let _ = room.broadcast.send(msg);
-}
-
-fn broadcast_pen_text_deleted(room: &Arc<Room>, board_id: &str, text_id: &str) {
-    let seq = room.next_seq();
-    let msg = ServerMsg::PenTextDeleted {
-        v: PROTOCOL_VERSION,
-        ts: now_ms(),
-        seq,
-        board_id: board_id.to_string(),
-        text_id: text_id.to_string(),
-    };
-    let _ = room.broadcast.send(msg);
-}
-
-fn broadcast_pen_cleared(room: &Arc<Room>, board_id: &str) {
-    let seq = room.next_seq();
-    let msg = ServerMsg::PenCleared {
-        v: PROTOCOL_VERSION,
-        ts: now_ms(),
-        seq,
-        board_id: board_id.to_string(),
-    };
-    let _ = room.broadcast.send(msg);
-}
-
-fn broadcast_pen_undone(
-    room: &Arc<Room>,
-    board_id: &str,
-    removed_stroke_id: Option<String>,
-    removed_text_id: Option<String>,
-) {
-    let seq = room.next_seq();
-    let msg = ServerMsg::PenUndone {
-        v: PROTOCOL_VERSION,
-        ts: now_ms(),
-        seq,
-        board_id: board_id.to_string(),
-        removed_stroke_id,
-        removed_text_id,
+        scene_version,
+        elements: elements.clone(),
+        app_state: app_state.clone(),
     };
     let _ = room.broadcast.send(msg);
 }

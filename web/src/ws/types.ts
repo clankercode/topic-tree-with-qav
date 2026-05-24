@@ -64,6 +64,15 @@ export interface PenBoardContent {
   texts: PenText[];
 }
 
+export interface ExcalidrawBoard extends Board {
+  kind: "excalidraw";
+  sceneVersion: number;
+  elements: unknown[];
+  appState: unknown;
+}
+
+export type FatBoard = Board | ExcalidrawBoard;
+
 export interface RoomSummary {
   id: string;
   title: string;
@@ -76,7 +85,7 @@ export interface RoomSnapshot {
   guests: Guest[];
   topics: Topic[];
   questions: Question[];
-  boards: unknown[];
+  boards: FatBoard[];
   hands: unknown[];
   myVotes: string[];
   focusedBoardId: string | null;
@@ -109,13 +118,21 @@ export type ServerMsg =
   | (Envelope & { type: "QuestionUpdated"; question: Question })
   | (Envelope & { type: "QuestionDeleted"; questionId: string })
   | (Envelope & { type: "VoteUpdated"; questionId: string; voteCount: number; voterGuestId: string })
-  | (Envelope & { type: "PenStrokeBegun"; boardId: string; strokeId: string; color: string; size: number; authorClientId: string })
+  | (Envelope & { type: "BoardCreated"; board: Board })
+  | (Envelope & { type: "BoardUpdated"; board: Board })
+  | (Envelope & { type: "BoardDeleted"; boardId: string })
+  | (Envelope & { type: "FocusedBoardChanged"; boardId: string })
+  | (Envelope & { type: "ExcalidrawDelta"; boardId: string; sceneVersion: number; elements: unknown[]; appState: unknown })
+  | (Envelope & { type: "ExcalidrawSceneReset"; boardId: string; sceneVersion: number; elements: unknown[]; appState: unknown })
+  | (Envelope & { type: "PenStrokeBegun"; boardId: string; strokeId: string; color: string; size: number })
   | (Envelope & { type: "PenStrokeAppended"; boardId: string; strokeId: string; points: [number, number, number][] })
   | (Envelope & { type: "PenStrokeEnded"; boardId: string; strokeId: string })
   | (Envelope & { type: "PenTextUpserted"; boardId: string; text: PenText })
   | (Envelope & { type: "PenTextDeleted"; boardId: string; textId: string })
   | (Envelope & { type: "PenCleared"; boardId: string })
   | (Envelope & { type: "PenUndone"; boardId: string; removedStrokeId: string | null; removedTextId: string | null })
+  | (Envelope & { type: "CursorMoved"; boardId: string; clientId: string; guestId: string; displayName: string; x: number; y: number })
+  | (Envelope & { type: "Clicked"; boardId: string; clientId: string; guestId: string; displayName: string; x: number; y: number })
   | (Envelope & { type: string; [k: string]: unknown });
 
 export interface ClientHello {

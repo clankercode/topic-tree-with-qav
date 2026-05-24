@@ -2,16 +2,15 @@ import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { ActiveTopicBadge } from "../components/ActiveTopicBadge";
 import { AdminBanner } from "../components/AdminBanner";
+import { BoardPanel } from "../components/BoardPanel";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { QAPanel } from "../components/QAPanel";
-import { PenBoard } from "../components/PenBoard";
 import { TopicTree } from "../components/TopicTree";
 import { getRoom, type RoomRecord } from "../lib/idb";
 import { setWsClient, sendWsMsg } from "../ws/manager";
 import { useSessionStore } from "../store";
 import { WsClient } from "../ws/client";
 import type { SortMode } from "../components/SortToggle";
-import type { PenBoardContent } from "../ws/types";
 
 export function HostSession() {
   const { roomId } = useParams();
@@ -19,13 +18,7 @@ export function HostSession() {
     undefined,
   );
   const [sortMode, setSortMode] = useState<SortMode>("chronological");
-  const { topics, activeTopicId, boards, penBoards, focusedBoardId } = useSessionStore();
-
-  const defaultBoard = boards.find((b) => b.kind === "pen");
-  const defaultBoardId = defaultBoard?.id ?? focusedBoardId ?? boards[0]?.id ?? null;
-  const penBoardContent: PenBoardContent = defaultBoardId
-    ? penBoards.get(defaultBoardId) ?? { strokes: [], texts: [] }
-    : { strokes: [], texts: [] };
+  const { topics, activeTopicId } = useSessionStore();
 
   useEffect(() => {
     if (!roomId) {
@@ -162,11 +155,9 @@ export function HostSession() {
             <QAPanel sortMode={sortMode} onSortChange={setSortMode} />
           </section>
         </div>
-        {defaultBoardId && (
-          <section className="flex flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] overflow-hidden">
-            <PenBoard boardId={defaultBoardId} content={penBoardContent} isHost={true} />
-          </section>
-        )}
+        <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] overflow-hidden">
+          <BoardPanel />
+        </section>
       </div>
     </main>
   );
