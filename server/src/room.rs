@@ -1412,4 +1412,393 @@ mod tests {
         assert_eq!(snap.hands.len(), 1);
         assert_eq!(snap.hands[0].guest_id, "g1");
     }
+
+    #[test]
+    fn create_board_pen_initializes_pen_state() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen Board".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        assert!(r.board_exists("b1"));
+        let state = r.get_pen_board_state("b1").unwrap();
+        assert!(state.strokes.is_empty());
+        assert!(state.texts.is_empty());
+    }
+
+    #[test]
+    fn create_board_excalidraw_initializes_scene() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "e1".into(),
+            kind: BoardKind::Excalidraw,
+            title: "Excalidraw Board".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        assert!(r.board_exists("e1"));
+        let scene = r.get_excalidraw_scene("e1").unwrap();
+        assert_eq!(scene.scene_version, 0);
+    }
+
+    #[test]
+    fn rename_board_updates_title() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Old Title".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        let renamed = r.rename_board("b1", "New Title".into());
+        assert!(renamed.is_some());
+        assert_eq!(renamed.unwrap().title, "New Title");
+    }
+
+    #[test]
+    fn rename_board_nonexistent_returns_none() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        assert!(r.rename_board("nonexistent", "X".into()).is_none());
+    }
+
+    #[test]
+    fn delete_board_removes_board_and_clears_focus() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        r.set_focused_board("b1".into());
+        assert!(r.delete_board("b1"));
+        assert!(!r.board_exists("b1"));
+        assert!(r.focused_board_id().is_none());
+    }
+
+    #[test]
+    fn delete_board_nonexistent_returns_false() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        assert!(!r.delete_board("nonexistent"));
+    }
+
+    #[test]
+    fn set_focused_board_tracks_current() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        assert!(r.focused_board_id().is_none());
+        r.set_focused_board("b1".into());
+        assert_eq!(r.focused_board_id(), Some("b1".into()));
+    }
+
+    #[test]
+    fn excalidraw_scene_update_increments_version() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "e1".into(),
+            kind: BoardKind::Excalidraw,
+            title: "Excal".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        let elements: JsonValue = serde_json::json!([{"id": "el1"}]);
+        let app_state: JsonValue = serde_json::json!({});
+        r.update_excalidraw_scene("e1", 1, elements.clone(), app_state.clone(), 200);
+        let scene = r.get_excalidraw_scene("e1").unwrap();
+        assert_eq!(scene.scene_version, 1);
+    }
+
+    #[test]
+    fn excalidraw_scene_update_nonexistent_returns_false() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let elements: JsonValue = serde_json::json!([]);
+        let app_state: JsonValue = serde_json::json!({});
+        assert!(!r.update_excalidraw_scene("nonexistent", 1, elements, app_state, 200));
+    }
+
+    #[test]
+    fn excalidraw_scene_update_wrong_kind_returns_false() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        let elements: JsonValue = serde_json::json!([]);
+        let app_state: JsonValue = serde_json::json!({});
+        assert!(!r.update_excalidraw_scene("b1", 1, elements, app_state, 200));
+    }
+
+    #[test]
+    fn get_excalidraw_scenes_needing_reset_returns_pending_scenes() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "e1".into(),
+            kind: BoardKind::Excalidraw,
+            title: "Excal".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        let elements: JsonValue = serde_json::json!([]);
+        let app_state: JsonValue = serde_json::json!({});
+        r.update_excalidraw_scene("e1", 3, elements.clone(), app_state.clone(), 200);
+        let pending = r.get_excalidraw_scenes_needing_reset();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].scene_version, 3);
+    }
+
+    #[test]
+    fn mark_excalidraw_scene_broadcast_updates_version_tracker() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "e1".into(),
+            kind: BoardKind::Excalidraw,
+            title: "Excal".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        r.mark_excalidraw_scene_broadcast("e1", 5);
+        let pending = r.get_excalidraw_scenes_needing_reset();
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn pen_begin_stroke_creates_stroke() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        let stroke = r
+            .pen_begin_stroke("b1", "s1".into(), "#000".into(), 4.0, 1000)
+            .unwrap();
+        assert_eq!(stroke.id, "s1");
+        assert_eq!(stroke.color, "#000");
+        assert!(stroke.points.is_empty());
+    }
+
+    #[test]
+    fn pen_begin_stroke_nonexistent_board_returns_none() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        assert!(r
+            .pen_begin_stroke("nonexistent", "s1".into(), "#000".into(), 4.0, 1000)
+            .is_none());
+    }
+
+    #[test]
+    fn pen_append_points_extends_stroke() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        r.pen_begin_stroke("b1", "s1".into(), "#000".into(), 4.0, 1000);
+        r.pen_append_points("b1", "s1", vec![[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]]);
+        let state = r.get_pen_board_state("b1").unwrap();
+        assert_eq!(state.strokes[0].points.len(), 2);
+    }
+
+    #[test]
+    fn pen_end_stroke_finalizes_ord() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        r.pen_begin_stroke("b1", "s1".into(), "#000".into(), 4.0, 1000);
+        r.pen_end_stroke("b1", "s1");
+        let state = r.get_pen_board_state("b1").unwrap();
+        assert_eq!(state.strokes[0].ord, 1);
+        assert_eq!(state.next_stroke_ord, 2);
+    }
+
+    #[test]
+    fn pen_text_upsert_adds_text() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        let text = crate::proto::PenText {
+            id: "t1".into(),
+            x: 10.0,
+            y: 20.0,
+            text: "Hello".into(),
+            font_size: 16.0,
+            color: "#000".into(),
+            updated_at: 1000,
+        };
+        r.pen_text_upsert("b1", text, 1000);
+        let state = r.get_pen_board_state("b1").unwrap();
+        assert_eq!(state.texts.len(), 1);
+        assert_eq!(state.texts[0].text, "Hello");
+    }
+
+    #[test]
+    fn pen_text_delete_removes_text() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        let text = crate::proto::PenText {
+            id: "t1".into(),
+            x: 10.0,
+            y: 20.0,
+            text: "Hello".into(),
+            font_size: 16.0,
+            color: "#000".into(),
+            updated_at: 1000,
+        };
+        r.pen_text_upsert("b1", text, 1000);
+        r.pen_text_delete("b1", "t1", 2000);
+        let state = r.get_pen_board_state("b1").unwrap();
+        assert!(state.texts.is_empty());
+    }
+
+    #[test]
+    fn pen_clear_removes_all_strokes_and_texts() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        r.pen_begin_stroke("b1", "s1".into(), "#000".into(), 4.0, 1000);
+        let text = crate::proto::PenText {
+            id: "t1".into(),
+            x: 10.0,
+            y: 20.0,
+            text: "Hello".into(),
+            font_size: 16.0,
+            color: "#000".into(),
+            updated_at: 1000,
+        };
+        r.pen_text_upsert("b1", text, 1000);
+        r.pen_clear("b1", 2000);
+        let state = r.get_pen_board_state("b1").unwrap();
+        assert!(state.strokes.is_empty());
+        assert!(state.texts.is_empty());
+    }
+
+    #[test]
+    fn pen_undo_removes_last_action() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        r.pen_begin_stroke("b1", "s1".into(), "#000".into(), 4.0, 1000);
+        let result = r.pen_undo("b1");
+        assert!(result.is_some());
+        let (stroke_id, _) = result.unwrap();
+        assert_eq!(stroke_id, Some("s1".into()));
+        let state = r.get_pen_board_state("b1").unwrap();
+        assert!(state.strokes.is_empty());
+    }
+
+    #[test]
+    fn set_muted_updates_guest_muted_state() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_client("g1".into(), "c1".into(), "Alice".into(), 100, false);
+        assert!(!r.is_muted("g1"));
+        r.set_muted("g1", true);
+        assert!(r.is_muted("g1"));
+        r.set_muted("g1", false);
+        assert!(!r.is_muted("g1"));
+    }
+
+    #[test]
+    fn set_muted_nonexistent_returns_false() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        assert!(!r.set_muted("nonexistent", true));
+    }
+
+    #[test]
+    fn is_muted_nonexistent_returns_false() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        assert!(!r.is_muted("nonexistent"));
+    }
+
+    #[test]
+    fn kick_guest_removes_presence() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_client("g1".into(), "c1".into(), "Alice".into(), 100, false);
+        assert_eq!(r.presence().len(), 1);
+        let removed = r.kick_guest("g1");
+        assert!(!removed.is_empty());
+        assert_eq!(r.presence().len(), 0);
+    }
+
+    #[test]
+    fn kick_guest_nonexistent_returns_empty() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        assert!(r.kick_guest("nonexistent").is_empty());
+    }
+
+    #[test]
+    fn snapshot_includes_boards() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        r.set_focused_board("b1".into());
+        let snap = r.snapshot_for(you("c1", "g1", Role::Guest), "g1");
+        assert_eq!(snap.boards.len(), 1);
+        assert_eq!(snap.focused_board_id, Some("b1".into()));
+    }
 }

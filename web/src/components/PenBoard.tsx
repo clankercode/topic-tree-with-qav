@@ -52,7 +52,7 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
       const key = `${boardId}:${strokeId}`;
       const newInProgress = new Map(penInProgressStrokes);
       newInProgress.set(key, { color, size, points: [[x, y, pressure] as [number, number, number]] });
-      useSessionStore.setState((state) => ({ penInProgressStrokes: newInProgress }));
+      useSessionStore.setState({ penInProgressStrokes: newInProgress });
       sendWsMsg({
         v: 1,
         type: "PenStrokeBegin",
@@ -73,7 +73,7 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
       const newPoints: [number, number, number][] = [[x, y, pressure]];
       const newInProgress = new Map(penInProgressStrokes);
       newInProgress.set(key, { ...stroke, points: [...stroke.points, ...newPoints] });
-      useSessionStore.setState((state) => ({ penInProgressStrokes: newInProgress }));
+      useSessionStore.setState({ penInProgressStrokes: newInProgress });
       sendWsMsg({
         v: 1,
         type: "PenStrokeAppend",

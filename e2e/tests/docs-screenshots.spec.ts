@@ -48,15 +48,15 @@ test.describe("docs screenshots", () => {
 
     await guestPage.getByPlaceholder("Type your question").fill("What is the topic?");
     await guestPage.getByRole("button", { name: "Submit" }).click();
-    await guestPage.waitForTimeout(500);
+    await expect(guestPage.getByPlaceholder("Type your question")).toBeEnabled();
 
     await guestPage.getByPlaceholder("Type your question").fill("Can you elaborate?");
     await guestPage.getByRole("button", { name: "Submit" }).click();
-    await guestPage.waitForTimeout(500);
+    await expect(guestPage.getByPlaceholder("Type your question")).toBeEnabled();
 
     const voteBtn = guestPage.getByRole("button", { name: /vote/i }).first();
     await voteBtn.click();
-    await guestPage.waitForTimeout(500);
+    await expect(voteBtn).toBeEnabled();
 
     await hostPage.screenshot({ path: `${OUT_DIR}/qa-active.png` });
 
@@ -85,7 +85,6 @@ test.describe("docs screenshots", () => {
     await page.mouse.move(box!.width / 2 + 80, box!.height / 2 + 30);
     await page.mouse.move(box!.width / 2 + 120, box!.height / 2 + 60);
     await page.mouse.up();
-    await page.waitForTimeout(500);
 
     await page.screenshot({ path: `${OUT_DIR}/pen-board-content.png` });
   });
@@ -99,10 +98,8 @@ test.describe("docs screenshots", () => {
     await page.getByRole("button", { name: "Excalidraw" }).click();
     await page.getByRole("button", { name: "Create", exact: true }).click();
 
-    await page.waitForTimeout(3000);
-
     const excanvas = page.locator(".excalidraw-body").first();
-    await expect(excanvas).toBeVisible({ timeout: 10_000 });
+    await expect(excanvas).toBeVisible({ timeout: 15_000 });
 
     await page.screenshot({ path: `${OUT_DIR}/excalidraw-board.png` });
   });
@@ -175,7 +172,7 @@ test.describe("docs screenshots", () => {
     await page.screenshot({ path: `${OUT_DIR}/dark-mid-session.png` });
   });
 
-  test("dark mode Q&A", async ({ browser }) => {
+  test("dark mode Q&A", async ({ browser, page }) => {
     await page.goto("/");
     await page.evaluate(() => {
       localStorage.setItem("theme", "dark");
@@ -213,7 +210,7 @@ test.describe("docs screenshots", () => {
 
     await guestPage.getByPlaceholder("Type your question").fill("Dark question");
     await guestPage.getByRole("button", { name: "Submit" }).click();
-    await guestPage.waitForTimeout(500);
+    await expect(guestPage.getByPlaceholder("Type your question")).toBeEnabled();
 
     await hostPage.screenshot({ path: `${OUT_DIR}/dark-qa-active.png` });
 

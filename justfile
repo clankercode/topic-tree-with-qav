@@ -110,8 +110,8 @@ test-server:
 test-e2e: build
     pnpm -C e2e test
 
-# playwright on one file
-test-e2e-only file:
+# playwright on one file (depends on build so it gets fresh web assets)
+test-e2e-only file: build
     pnpm -C e2e test {{file}}
 
 # accept current screenshots as the new baseline

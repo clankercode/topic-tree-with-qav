@@ -102,8 +102,7 @@ test.describe("raise hand", () => {
     await expect(guestPage.getByRole("button", { name: "Lower hand" })).toBeVisible();
 
     await guestPage.getByRole("button", { name: "Lower hand" }).click();
-    await dialog.getByRole("button", { name: "Lower hand" }).click();
-    await guestPage.waitForTimeout(1000);
+    await expect(dialog).not.toBeVisible({ timeout: 5000 });
     await expect(guestPage.getByRole("button", { name: "Raise hand" })).toBeVisible();
 
     await hostContext.close();
