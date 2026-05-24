@@ -14,7 +14,7 @@ export interface RoomRecord {
   lastJoinedAt: number;
 }
 
-const DB_NAME = "tt-qav";
+const DB_NAME = "topic-tree-with-qav";
 const DB_VERSION = 1;
 const ROOMS_STORE = "rooms";
 const META_STORE = "meta";
