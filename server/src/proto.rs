@@ -153,6 +153,39 @@ pub struct Board {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub struct PenText {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub text: String,
+    pub font_size: f64,
+    pub color: String,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub struct PenStrokeSummary {
+    pub id: String,
+    pub color: String,
+    pub size: f64,
+    pub points: Vec<[f32; 3]>,
+    pub created_at: i64,
+    pub ord: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ExcalidrawScene {
     pub board_id: String,
@@ -413,6 +446,61 @@ pub enum ClientMsg {
         #[serde(skip_serializing_if = "Option::is_none")]
         after_topic_id: Option<String>,
     },
+    PenStrokeBegin {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        stroke_id: String,
+        color: String,
+        size: f64,
+    },
+    PenStrokeAppend {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        stroke_id: String,
+        points: Vec<[f32; 3]>,
+    },
+    PenStrokeEnd {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        stroke_id: String,
+    },
+    PenTextSet {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        text_id: String,
+        x: f64,
+        y: f64,
+        text: String,
+        font_size: f64,
+        color: String,
+    },
+    PenTextDelete {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        text_id: String,
+    },
+    PenClear {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+    },
+    PenUndo {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+    },
 }
 
 // ──────────────────────────── server → client ───────────────────────────
@@ -564,6 +652,59 @@ pub enum ServerMsg {
         question_id: String,
         topic: Topic,
     },
+    PenStrokeBegun {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        stroke_id: String,
+        color: String,
+        size: f64,
+        author_client_id: String,
+    },
+    PenStrokeAppended {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        stroke_id: String,
+        points: Vec<[f32; 3]>,
+    },
+    PenStrokeEnded {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        stroke_id: String,
+    },
+    PenTextUpserted {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        text: PenText,
+    },
+    PenTextDeleted {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        text_id: String,
+    },
+    PenCleared {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+    },
+    PenUndone {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        removed_stroke_id: Option<String>,
+        removed_text_id: Option<String>,
+    },
 }
 
 // Documented error codes used in M1 (extensible).
@@ -599,6 +740,8 @@ mod proto_export_tests {
         RoomSummary::export().expect("export RoomSummary");
         BoardKind::export().expect("export BoardKind");
         Board::export().expect("export Board");
+        PenText::export().expect("export PenText");
+        PenStrokeSummary::export().expect("export PenStrokeSummary");
         RoomSnapshot::export().expect("export RoomSnapshot");
         ClientMsg::export().expect("export ClientMsg");
         ServerMsg::export().expect("export ServerMsg");
