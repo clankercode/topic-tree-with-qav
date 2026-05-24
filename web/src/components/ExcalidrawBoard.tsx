@@ -58,7 +58,6 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
         viewModeEnabled={!isHost}
         onChange={handleChange}
         theme={resolvedTheme}
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         initialData={{
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           elements: board.elements as any,
