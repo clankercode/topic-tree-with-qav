@@ -19,12 +19,13 @@ export function ClickPingLayer({ boardId, containerRef: _containerRef }: ClickPi
   pingsRef.current = pings;
 
   useEffect(() => {
-    const handleClicked = (e: CustomEvent<{ x: number; y: number; displayName: string }>) => {
+    const handleClicked = (e: Event) => {
+      const customEvent = e as CustomEvent<{ x: number; y: number; displayName: string }>;
       const ping: ClickPing = {
         id: crypto.randomUUID(),
-        x: e.detail.x,
-        y: e.detail.y,
-        displayName: e.detail.displayName,
+        x: customEvent.detail.x,
+        y: customEvent.detail.y,
+        displayName: customEvent.detail.displayName,
         timestamp: Date.now(),
       };
       setPings((prev) => [...prev, ping]);
@@ -32,8 +33,9 @@ export function ClickPingLayer({ boardId, containerRef: _containerRef }: ClickPi
         setPings((prev) => prev.filter((p) => p.id !== ping.id));
       }, 1200);
     };
-    window.addEventListener(`click-ping-${boardId}` as any, handleClicked);
-    return () => window.removeEventListener(`click-ping-${boardId}` as any, handleClicked);
+    const eventName = `click-ping-${boardId}` as keyof WindowEventMap;
+    window.addEventListener(eventName, handleClicked);
+    return () => window.removeEventListener(eventName, handleClicked);
   }, [boardId]);
 
   return (

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { PenCanvas } from "./PenCanvas";
 import { PenTextLayer } from "./PenTextLayer";
-import { PenToolPalette } from "./PenToolPalette";
+import { PenToolPalette, type ToolMode } from "./PenToolPalette";
 import { CursorLayer } from "./CursorLayer";
 import { ClickPingLayer } from "./ClickPingLayer";
 import { sendWsMsg } from "../ws/manager";
@@ -16,6 +16,9 @@ interface PenBoardProps {
 
 export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [color, setColor] = useState("#000000");
+  const [size, setSize] = useState(8);
+  const [tool, setTool] = useState<ToolMode>("pen");
   const penInProgressStrokes = useSessionStore((s) => s.penInProgressStrokes);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -45,17 +48,21 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
   }, [boardId, penInProgressStrokes]);
 
   const handleStrokeBegin = useCallback(
-    (_bid: string, strokeId: string, _x: number, _y: number, _pressure: number) => {
+    (_bid: string, strokeId: string, x: number, y: number, pressure: number) => {
+      const key = `${boardId}:${strokeId}`;
+      const newInProgress = new Map(penInProgressStrokes);
+      newInProgress.set(key, { color, size, points: [[x, y, pressure] as [number, number, number]] });
+      useSessionStore.setState((state) => ({ penInProgressStrokes: newInProgress }));
       sendWsMsg({
         v: 1,
         type: "PenStrokeBegin",
         boardId,
         strokeId,
-        color: "#000000",
-        size: 8,
+        color,
+        size,
       });
     },
-    [boardId],
+    [boardId, penInProgressStrokes, color, size],
   );
 
   const handleStrokeAppend = useCallback(
@@ -64,6 +71,9 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
       const stroke = penInProgressStrokes.get(key);
       if (!stroke) return;
       const newPoints: [number, number, number][] = [[x, y, pressure]];
+      const newInProgress = new Map(penInProgressStrokes);
+      newInProgress.set(key, { ...stroke, points: [...stroke.points, ...newPoints] });
+      useSessionStore.setState((state) => ({ penInProgressStrokes: newInProgress }));
       sendWsMsg({
         v: 1,
         type: "PenStrokeAppend",
@@ -88,7 +98,7 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
   );
 
   const handleTextCommit = useCallback(
-    (textId: string, x: number, y: number, text: string, fontSize: number, color: string) => {
+    (textId: string, x: number, y: number, text: string, fontSize: number, textColor: string) => {
       sendWsMsg({
         v: 1,
         type: "PenTextSet",
@@ -98,7 +108,7 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
         y,
         text,
         fontSize,
-        color,
+        color: textColor,
       });
     },
     [boardId],
@@ -122,7 +132,15 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
     <div className="flex flex-col h-full">
       {isHost && (
         <div className="mb-2">
-          <PenToolPalette boardId={boardId} />
+          <PenToolPalette
+            boardId={boardId}
+            color={color}
+            size={size}
+            tool={tool}
+            onColorChange={setColor}
+            onSizeChange={setSize}
+            onToolChange={setTool}
+          />
         </div>
       )}
       <div className="relative flex-1 min-h-0 border border-[rgb(var(--border))] rounded overflow-hidden" ref={containerRef}>
@@ -134,6 +152,7 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
           onStrokeAppend={handleStrokeAppend}
           onStrokeEnd={handleStrokeEnd}
           isHost={isHost}
+          tool={tool}
         />
         <PenTextLayer
           texts={content.texts}
@@ -142,6 +161,7 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
           onTextCommit={handleTextCommit}
           onTextDelete={handleTextDelete}
           isHost={isHost}
+          tool={tool}
         />
         <CursorLayer
           boardId={boardId}

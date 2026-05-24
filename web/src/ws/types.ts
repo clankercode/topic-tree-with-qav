@@ -136,7 +136,7 @@ export type ServerMsg =
   | (Envelope & { type: "FocusedBoardChanged"; boardId: string })
   | (Envelope & { type: "ExcalidrawDelta"; boardId: string; sceneVersion: number; elements: unknown[]; appState: unknown })
   | (Envelope & { type: "ExcalidrawSceneReset"; boardId: string; sceneVersion: number; elements: unknown[]; appState: unknown })
-  | (Envelope & { type: "PenStrokeBegun"; boardId: string; strokeId: string; color: string; size: number })
+  | (Envelope & { type: "PenStrokeBegun"; boardId: string; strokeId: string; color: string; size: number; authorClientId: string })
   | (Envelope & { type: "PenStrokeAppended"; boardId: string; strokeId: string; points: [number, number, number][] })
   | (Envelope & { type: "PenStrokeEnded"; boardId: string; strokeId: string })
   | (Envelope & { type: "PenTextUpserted"; boardId: string; text: PenText })

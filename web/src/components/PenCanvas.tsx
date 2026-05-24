@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { getStroke } from "perfect-freehand";
 import type { PenStrokeSummary } from "../ws/types";
 import { useThemeStore } from "../store/theme";
+import type { ToolMode } from "./PenToolPalette";
 
 const CANVAS_WIDTH = 4096;
 const CANVAS_HEIGHT = 2304;
@@ -39,6 +40,7 @@ interface PenCanvasProps {
   onStrokeEnd?: (boardId: string, strokeId: string) => void;
   isHost?: boolean;
   boardId: string;
+  tool?: ToolMode;
 }
 
 export function PenCanvas({
@@ -49,6 +51,7 @@ export function PenCanvas({
   onStrokeEnd,
   isHost = false,
   boardId,
+  tool = "pen",
 }: PenCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -130,7 +133,7 @@ export function PenCanvas({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isHost || !onStrokeBegin) return;
+    if (!isHost || !onStrokeBegin || tool === "text") return;
     e.preventDefault();
     const { x, y, pressure } = getCanvasPoint(e);
     const strokeId = crypto.randomUUID();

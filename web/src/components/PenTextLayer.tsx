@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import type { PenText } from "../ws/types";
+import type { ToolMode } from "./PenToolPalette";
 
 const CANVAS_WIDTH = 4096;
 const CANVAS_HEIGHT = 2304;
@@ -11,6 +12,7 @@ interface PenTextLayerProps {
   onTextCommit?: (textId: string, x: number, y: number, text: string, fontSize: number, color: string) => void;
   onTextDelete?: (textId: string) => void;
   isHost?: boolean;
+  tool?: ToolMode;
 }
 
 interface TextEditState {
@@ -29,6 +31,7 @@ export function PenTextLayer({
   onTextCommit,
   onTextDelete,
   isHost = false,
+  tool = "pen",
 }: PenTextLayerProps) {
   const [editing, setEditing] = useState<TextEditState | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -95,8 +98,8 @@ export function PenTextLayer({
 
   return (
     <div
-      className="absolute inset-0 pointer-events-none"
-      style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT, transform: "scale(1)", transformOrigin: "top left" }}
+      className="absolute inset-0"
+      style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT, transform: "scale(1)", transformOrigin: "top left", pointerEvents: tool === "text" ? "auto" : "none" }}
       onClick={handleCanvasClick}
     >
       {texts.map((text) => (

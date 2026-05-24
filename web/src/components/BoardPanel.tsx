@@ -7,10 +7,10 @@ import { BoardTabs } from "./BoardTabs";
 import { CreateBoardDialog } from "./CreateBoardDialog";
 import { ExcalidrawBoard } from "./ExcalidrawBoard";
 import { PenBoard } from "./PenBoard";
-import type { ExcalidrawBoard as ExcalidrawBoardType, PenBoard as PenBoardType } from "../ws/types";
+import type { ExcalidrawBoard as ExcalidrawBoardType } from "../ws/types";
 
 export function BoardPanel() {
-  const { boards, focusedBoardId, me } = useSessionStore();
+  const { boards, focusedBoardId, me, penBoards } = useSessionStore();
   const { followingHost, setFollowingHost } = useFollowHostStore();
   const [showCreate, setShowCreate] = useState(false);
   const isHost = me?.role === "host";
@@ -79,7 +79,7 @@ export function BoardPanel() {
           </div>
         ) : focusedBoard?.kind === "pen" ? (
           <div className="w-full max-w-full" style={{ aspectRatio: "16/9" }}>
-            <PenBoard boardId={focusedBoard.id} content={(focusedBoard as PenBoardType).content ?? { strokes: [], texts: [] }} isHost={isHost} />
+            <PenBoard boardId={focusedBoard.id} content={penBoards.get(focusedBoard.id) ?? { strokes: [], texts: [] }} isHost={isHost} />
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-[rgb(var(--muted))]">

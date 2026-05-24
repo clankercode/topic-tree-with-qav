@@ -12,18 +12,31 @@ const PRESET_COLORS = [
   "#a855f7",
 ];
 
-interface PenToolPaletteProps {
+export type ToolMode = "pen" | "text";
+
+export interface PenToolPaletteProps {
   boardId: string;
+  color: string;
+  size: number;
+  tool: ToolMode;
+  onColorChange: (color: string) => void;
+  onSizeChange: (size: number) => void;
+  onToolChange: (tool: ToolMode) => void;
   onUndo?: () => void;
   onClear?: () => void;
 }
 
-type ToolMode = "pen" | "text";
-
-export function PenToolPalette({ boardId, onUndo, onClear }: PenToolPaletteProps) {
-  const [color, setColor] = useState("#000000");
-  const [size, setSize] = useState(8);
-  const [tool, setTool] = useState<ToolMode>("pen");
+export function PenToolPalette({
+  boardId,
+  color,
+  size,
+  tool,
+  onColorChange,
+  onSizeChange,
+  onToolChange,
+  onUndo,
+  onClear,
+}: PenToolPaletteProps) {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const handleUndo = () => {
@@ -51,13 +64,13 @@ export function PenToolPalette({ boardId, onUndo, onClear }: PenToolPaletteProps
               key={c}
               className={`w-5 h-5 rounded border-2 ${color === c ? "border-blue-500" : "border-transparent"}`}
               style={{ backgroundColor: c }}
-              onClick={() => setColor(c)}
+              onClick={() => onColorChange(c)}
             />
           ))}
           <input
             type="color"
             value={color}
-            onChange={(e) => setColor(e.target.value)}
+            onChange={(e) => onColorChange(e.target.value)}
             className="w-5 h-5 rounded cursor-pointer"
           />
         </div>
@@ -70,7 +83,7 @@ export function PenToolPalette({ boardId, onUndo, onClear }: PenToolPaletteProps
           min={2}
           max={32}
           value={size}
-          onChange={(e) => setSize(Number(e.target.value))}
+          onChange={(e) => onSizeChange(Number(e.target.value))}
           className="w-20"
         />
         <span className="text-xs text-[rgb(var(--muted))] w-6">{size}</span>
@@ -79,13 +92,13 @@ export function PenToolPalette({ boardId, onUndo, onClear }: PenToolPaletteProps
       <div className="flex items-center gap-1">
         <button
           className={`px-2 py-1 text-xs rounded ${tool === "pen" ? "bg-blue-500 text-white" : "bg-[rgb(var(--border))]"}`}
-          onClick={() => setTool("pen")}
+          onClick={() => onToolChange("pen")}
         >
           Pen
         </button>
         <button
           className={`px-2 py-1 text-xs rounded ${tool === "text" ? "bg-blue-500 text-white" : "bg-[rgb(var(--border))]"}`}
-          onClick={() => setTool("text")}
+          onClick={() => onToolChange("text")}
         >
           Text
         </button>
@@ -109,18 +122,6 @@ export function PenToolPalette({ boardId, onUndo, onClear }: PenToolPaletteProps
       >
         {showClearConfirm ? "Confirm Clear" : "Clear"}
       </button>
-
-      <input type="hidden" value={tool} />
-      <input type="hidden" value={color} />
-      <input type="hidden" value={size} />
     </div>
   );
-}
-
-export function getCurrentToolSettings() {
-  return {
-    color: "#000000",
-    size: 8,
-    tool: "pen" as ToolMode,
-  };
 }
