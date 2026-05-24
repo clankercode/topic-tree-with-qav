@@ -36,8 +36,9 @@ use crate::auth::verify_admin_token;
 use crate::proto::{
     error_codes, ClientMsg, Question, Role, ServerMsg, Topic, TopicStatus, You, PROTOCOL_VERSION,
 };
+use crate::rate_limit::Quota;
 use crate::room::Room;
-use crate::state::AppState;
+use crate::state::{global_rate_limiter, AppState};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(25);
 const HELLO_TIMEOUT: Duration = Duration::from_secs(15);
@@ -903,6 +904,19 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
+            if !global_rate_limiter().check(client_id, "SubmitQuestion", Quota::per_minute(6.0)) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::RATE_LIMIT,
+                        "too many questions, slow down",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
             let text = text.trim().to_string();
             if text.is_empty() || text.len() > 500 {
                 let _ = send(
@@ -974,6 +988,19 @@ async fn handle_text(
                     &error_frame(
                         error_codes::MUTED,
                         "you are muted and cannot vote",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            if !global_rate_limiter().check(client_id, "VoteQuestion", Quota::per_minute(30.0)) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::RATE_LIMIT,
+                        "too many votes, slow down",
                         id,
                         room.current_seq(),
                     ),
@@ -1410,6 +1437,19 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
+            if !global_rate_limiter().check(client_id, "RaiseHand", Quota::per_minute(2.0)) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::RATE_LIMIT,
+                        "too many raised hands, slow down",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
             let presence = room.presence();
             let display_name = presence
                 .iter()
@@ -1586,6 +1626,9 @@ async fn handle_text(
                     &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
                 )
                 .await;
+                return Ok(());
+            }
+            if !global_rate_limiter().check(client_id, "PenStrokeAppend", Quota::per_second(60.0)) {
                 return Ok(());
             }
             if room.pen_append_points(&board_id, &stroke_id, points.clone()) {
