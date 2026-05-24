@@ -198,7 +198,6 @@ const CONTROL_FRAMES = new Set([
   "Error",
   "RoomSnapshot",
   "Welcome",
-  "KickNotice",
 ]);
 
 function isStateEvent(msg: ServerMsg): boolean {

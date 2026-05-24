@@ -28,6 +28,11 @@ export function GuestSession() {
       setRecord(null);
       return;
     }
+    if (kicked) {
+      // Kicked guests should not reconnect; the route renders the
+      // removed-from-room screen below.
+      return;
+    }
     let alive = true;
     let client: WsClient | null = null;
     void getRoom(roomId).then((room) => {
@@ -73,7 +78,7 @@ export function GuestSession() {
       setWsClient(null);
       client?.stop();
     };
-  }, [roomId, setConnectionStatus]);
+  }, [roomId, kicked, setConnectionStatus]);
 
   if (record === undefined) {
     return (
