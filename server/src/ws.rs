@@ -343,6 +343,7 @@ async fn run_connection(
             let kick_notice = ServerMsg::KickNotice {
                 v: PROTOCOL_VERSION,
                 ts: now_ms(),
+                seq: 0,
             };
             let _ = send(&mut sink, &kick_notice).await;
             let _ = send(
@@ -462,6 +463,7 @@ async fn run_connection(
     if now_disconnected {
         broadcast_presence(&room);
     }
+    global_rate_limiter().forget_client(&client_id);
     {
         let m = metrics.read().await;
         m.ws_connections_closed.inc();

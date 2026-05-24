@@ -123,14 +123,14 @@ impl Bucket {
 /// Registry of buckets keyed by `(client_id, message_kind)`.
 pub struct RateLimiter<C: Clock = SystemClock> {
     clock: Arc<C>,
-    buckets: DashMap<(String, &'static str), Bucket>,
+    buckets: Arc<DashMap<(String, &'static str), Bucket>>,
 }
 
 impl<C: Clock> Clone for RateLimiter<C> {
     fn clone(&self) -> Self {
         Self {
             clock: self.clock.clone(),
-            buckets: DashMap::new(),
+            buckets: self.buckets.clone(),
         }
     }
 }
@@ -139,7 +139,7 @@ impl<C: Clock> RateLimiter<C> {
     pub fn new(clock: Arc<C>) -> Self {
         Self {
             clock,
-            buckets: DashMap::new(),
+            buckets: Arc::new(DashMap::new()),
         }
     }
 

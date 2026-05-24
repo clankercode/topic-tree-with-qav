@@ -614,6 +614,7 @@ pub enum ServerMsg {
     KickNotice {
         v: u8,
         ts: i64,
+        seq: u64,
     },
     VoteUpdated {
         v: u8,
