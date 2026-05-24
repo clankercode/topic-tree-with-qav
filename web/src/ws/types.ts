@@ -18,6 +18,18 @@ export interface Topic {
   createdAt: number;
 }
 
+export interface Question {
+  id: string;
+  roomId: string;
+  authorGuestId: string;
+  authorName: string;
+  anonymous: boolean;
+  text: string;
+  answered: boolean;
+  createdAt: number;
+  voteCount: number;
+}
+
 export interface RoomSummary {
   id: string;
   title: string;
@@ -29,7 +41,7 @@ export interface RoomSnapshot {
   you: You & { guestId: string };
   guests: Guest[];
   topics: Topic[];
-  questions: unknown[];
+  questions: Question[];
   boards: unknown[];
   hands: unknown[];
   myVotes: string[];
@@ -59,6 +71,10 @@ export type ServerMsg =
       refId?: string;
     })
   | (Envelope & { type: "TopicTreeUpdated"; topics: Topic[]; activeTopicId: string | null })
+  | (Envelope & { type: "QuestionAdded"; question: Question })
+  | (Envelope & { type: "QuestionUpdated"; question: Question })
+  | (Envelope & { type: "QuestionDeleted"; questionId: string })
+  | (Envelope & { type: "VoteUpdated"; questionId: string; voteCount: number; voterGuestId: string })
   | (Envelope & { type: string; [k: string]: unknown });
 
 export interface ClientHello {

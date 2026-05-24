@@ -9,14 +9,14 @@
 //! alive until either explicit eviction (later: idle reaper) or process
 //! shutdown.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
 use tokio::sync::broadcast;
 
 use crate::proto::{
-    Guest, Presence, RoomSnapshot, RoomSummary, ServerMsg, Topic, TopicStatus, You,
+    Guest, Presence, Question, RoomSnapshot, RoomSummary, ServerMsg, Topic, TopicStatus, You,
 };
 
 /// Broadcast channel capacity per room. If a writer lags more than this
@@ -27,6 +27,7 @@ const BROADCAST_CAPACITY: usize = 256;
 pub type ClientId = String;
 pub type GuestId = String;
 pub type TopicId = String;
+pub type QuestionId = String;
 
 #[derive(Debug, Clone)]
 pub struct PresenceEntry {
@@ -71,6 +72,8 @@ struct RoomInner {
     presence: BTreeMap<GuestId, PresenceEntry>,
     topics: BTreeMap<TopicId, Topic>,
     active_topic_id: Option<TopicId>,
+    questions: BTreeMap<QuestionId, Question>,
+    vote_index: HashMap<QuestionId, HashSet<GuestId>>,
 }
 
 impl Room {
@@ -85,6 +88,8 @@ impl Room {
                 presence: BTreeMap::new(),
                 topics: BTreeMap::new(),
                 active_topic_id: None,
+                questions: BTreeMap::new(),
+                vote_index: HashMap::new(),
             }),
             broadcast: tx,
         }
@@ -250,11 +255,107 @@ impl Room {
         g.active_topic_id = active_topic_id;
     }
 
-    /// Build the M1 Welcome snapshot for a given client. Topics/boards/
-    /// questions/hands all empty in M1.
-    pub fn snapshot_for(&self, you: You, _my_guest_id: &str) -> RoomSnapshot {
-        let (guests, presence, topics, active_topic_id, seq) = {
+    pub fn questions(&self) -> Vec<Question> {
+        let g = self.inner.lock().expect("room inner");
+        g.questions.values().cloned().collect()
+    }
+
+    pub fn my_votes(&self, my_guest_id: &str) -> Vec<String> {
+        let g = self.inner.lock().expect("room inner");
+        let mut voted = Vec::new();
+        for (qid, voters) in &g.vote_index {
+            if voters.contains(my_guest_id) {
+                voted.push(qid.clone());
+            }
+        }
+        voted
+    }
+
+    pub fn add_question(&self, question: Question) {
+        let mut g = self.inner.lock().expect("room inner");
+        g.questions.insert(question.id.clone(), question.clone());
+        g.vote_index.entry(question.id.clone()).or_default();
+    }
+
+    pub fn get_question(&self, question_id: &str) -> Option<Question> {
+        let g = self.inner.lock().expect("room inner");
+        g.questions.get(question_id).cloned()
+    }
+
+    pub fn update_question(&self, question: Question) -> bool {
+        let mut g = self.inner.lock().expect("room inner");
+        if !g.questions.contains_key(&question.id) {
+            return false;
+        }
+        g.questions.insert(question.id.clone(), question);
+        true
+    }
+
+    pub fn delete_question(&self, question_id: &str) -> bool {
+        let mut g = self.inner.lock().expect("room inner");
+        g.questions.retain(|id, _| id != question_id);
+        g.vote_index.remove(question_id);
+        true
+    }
+
+    pub fn vote_question(
+        &self,
+        question_id: &str,
+        guest_id: &str,
+        vote: bool,
+    ) -> Option<(u32, bool)> {
+        let mut g = self.inner.lock().expect("room inner");
+        let was_voted = g
+            .vote_index
+            .get(question_id)
+            .map(|voters| voters.contains(guest_id))
+            .unwrap_or(false);
+        let changed = vote != was_voted;
+        if !changed {
+            return Some((g.questions.get(question_id)?.vote_count, false));
+        }
+        let new_count = if vote {
+            let voters = g.vote_index.entry(question_id.to_string()).or_default();
+            voters.insert(guest_id.to_string());
+            voters.len() as u32
+        } else {
+            let voters = g.vote_index.entry(question_id.to_string()).or_default();
+            voters.remove(guest_id);
+            voters.len() as u32
+        };
+        if let Some(q) = g.questions.get_mut(question_id) {
+            q.vote_count = new_count;
+        }
+        Some((new_count, true))
+    }
+
+    pub fn load_questions(
+        &self,
+        questions: Vec<Question>,
+        votes: HashMap<QuestionId, Vec<GuestId>>,
+    ) {
+        let mut g = self.inner.lock().expect("room inner");
+        g.questions.clear();
+        g.vote_index.clear();
+        for q in questions {
+            g.questions.insert(q.id.clone(), q);
+        }
+        for (qid, voters) in votes {
+            g.vote_index.insert(qid, voters.into_iter().collect());
+        }
+    }
+
+    /// Build the Welcome snapshot for a given client.
+    pub fn snapshot_for(&self, you: You, my_guest_id: &str) -> RoomSnapshot {
+        let (guests, presence, topics, active_topic_id, questions, seq) = {
             let g = self.inner.lock().expect("room inner");
+            let questions: Vec<Question> = g.questions.values().cloned().collect();
+            let my_votes: Vec<String> = g
+                .vote_index
+                .iter()
+                .filter(|(_, voters)| voters.contains(my_guest_id))
+                .map(|(qid, _)| qid.clone())
+                .collect();
             (
                 g.presence
                     .values()
@@ -266,9 +367,11 @@ impl Room {
                     .collect::<Vec<_>>(),
                 g.topics.values().cloned().collect::<Vec<_>>(),
                 g.active_topic_id.clone(),
+                (questions, my_votes),
                 g.seq,
             )
         };
+        let (questions, my_votes) = questions;
         RoomSnapshot {
             room: RoomSummary {
                 id: self.id.clone(),
@@ -280,8 +383,8 @@ impl Room {
             presence,
             topics,
             active_topic_id,
-            questions: vec![],
-            my_votes: vec![],
+            questions,
+            my_votes,
             boards: vec![],
             focused_board_id: None,
             hands: vec![],
@@ -538,5 +641,125 @@ mod tests {
         assert_eq!(r.topics().len(), 1);
         assert_eq!(r.topics()[0].title, "New");
         assert_eq!(r.active_topic_id(), Some("t2".into()));
+    }
+
+    fn make_question(id: &str, text: &str, vote_count: u32) -> Question {
+        Question {
+            id: id.into(),
+            room_id: "R".into(),
+            author_guest_id: "g1".into(),
+            author_name: "Alice".into(),
+            anonymous: false,
+            text: text.into(),
+            answered: false,
+            created_at: 100,
+            vote_count,
+        }
+    }
+
+    #[test]
+    fn question_add_list_get() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_question(make_question("q1", "What is Rust?", 0));
+        let qs = r.questions();
+        assert_eq!(qs.len(), 1);
+        assert_eq!(qs[0].text, "What is Rust?");
+    }
+
+    #[test]
+    fn question_update() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_question(make_question("q1", "What is Rust?", 0));
+        let mut q = make_question("q1", "What is Rust?", 0);
+        q.answered = true;
+        assert!(r.update_question(q));
+        assert!(r.questions()[0].answered);
+        assert!(!r.update_question(make_question("nonexistent", "?", 0)));
+    }
+
+    #[test]
+    fn question_delete() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_question(make_question("q1", "What is Rust?", 0));
+        assert_eq!(r.questions().len(), 1);
+        r.delete_question("q1");
+        assert!(r.questions().is_empty());
+    }
+
+    #[test]
+    fn question_vote_adds_count() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_question(make_question("q1", "What is Rust?", 0));
+        let (count, changed) = r.vote_question("q1", "g1", true).unwrap();
+        assert_eq!(count, 1);
+        assert!(changed);
+    }
+
+    #[test]
+    fn question_vote_retracts_count() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_question(make_question("q1", "What is Rust?", 0));
+        r.vote_question("q1", "g1", true).unwrap();
+        let (count, changed) = r.vote_question("q1", "g1", false).unwrap();
+        assert_eq!(count, 0);
+        assert!(changed);
+    }
+
+    #[test]
+    fn question_vote_double_vote_no_change() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_question(make_question("q1", "What is Rust?", 0));
+        r.vote_question("q1", "g1", true).unwrap();
+        let (count, changed) = r.vote_question("q1", "g1", true).unwrap();
+        assert_eq!(count, 1);
+        assert!(!changed);
+    }
+
+    #[test]
+    fn question_vote_multiple_guests() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_question(make_question("q1", "What is Rust?", 0));
+        r.vote_question("q1", "g1", true).unwrap();
+        r.vote_question("q1", "g2", true).unwrap();
+        r.vote_question("q1", "g3", true).unwrap();
+        assert_eq!(r.questions()[0].vote_count, 3);
+        r.vote_question("q1", "g2", false).unwrap();
+        assert_eq!(r.questions()[0].vote_count, 2);
+    }
+
+    #[test]
+    fn my_votes_tracks_correctly() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_question(make_question("q1", "Q1", 0));
+        r.add_question(make_question("q2", "Q2", 0));
+        r.add_question(make_question("q3", "Q3", 0));
+        r.vote_question("q1", "g1", true).unwrap();
+        r.vote_question("q3", "g1", true).unwrap();
+        let votes = r.my_votes("g1");
+        assert!(votes.contains(&"q1".into()));
+        assert!(!votes.contains(&"q2".into()));
+        assert!(votes.contains(&"q3".into()));
+    }
+
+    #[test]
+    fn snapshot_includes_questions_and_my_votes() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_question(make_question("q1", "Q1", 2));
+        r.vote_question("q1", "g1", true).unwrap();
+        let snap = r.snapshot_for(you("c1", "g1", Role::Guest), "g1");
+        assert_eq!(snap.questions.len(), 1);
+        assert_eq!(snap.questions[0].vote_count, 1);
+        assert!(snap.my_votes.contains(&"q1".into()));
+    }
+
+    #[test]
+    fn snapshot_questions_are_cloned() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_question(make_question("q1", "Q1", 0));
+        let snap1 = r.snapshot_for(you("c1", "g1", Role::Guest), "g1");
+        r.add_question(make_question("q2", "Q2", 0));
+        let snap2 = r.snapshot_for(you("c1", "g1", Role::Guest), "g1");
+        assert_eq!(snap1.questions.len(), 1);
+        assert_eq!(snap2.questions.len(), 2);
     }
 }

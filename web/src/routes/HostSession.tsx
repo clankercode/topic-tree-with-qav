@@ -3,17 +3,20 @@ import { Navigate, useParams } from "react-router-dom";
 import { ActiveTopicBadge } from "../components/ActiveTopicBadge";
 import { AdminBanner } from "../components/AdminBanner";
 import { PresenceIndicator } from "../components/PresenceIndicator";
+import { QAPanel } from "../components/QAPanel";
 import { TopicTree } from "../components/TopicTree";
 import { getRoom, type RoomRecord } from "../lib/idb";
 import { setWsClient, sendWsMsg } from "../ws/manager";
 import { useSessionStore } from "../store";
 import { WsClient } from "../ws/client";
+import type { SortMode } from "../components/SortToggle";
 
 export function HostSession() {
   const { roomId } = useParams();
   const [record, setRecord] = useState<RoomRecord | null | undefined>(
     undefined,
   );
+  const [sortMode, setSortMode] = useState<SortMode>("chronological");
   const { topics, activeTopicId } = useSessionStore();
 
   useEffect(() => {
@@ -145,7 +148,12 @@ export function HostSession() {
           <PresenceIndicator />
         </header>
         <AdminBanner joinUrl={joinUrl} adminUrl={adminUrl} />
-        <TopicTree />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <TopicTree />
+          <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))]">
+            <QAPanel sortMode={sortMode} onSortChange={setSortMode} />
+          </section>
+        </div>
       </div>
     </main>
   );

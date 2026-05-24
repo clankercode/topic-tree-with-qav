@@ -77,6 +77,25 @@ pub struct Guest {
     pub joined_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub struct Question {
+    pub id: String,
+    pub room_id: String,
+    pub author_guest_id: String,
+    pub author_name: String,
+    pub anonymous: bool,
+    pub text: String,
+    pub answered: bool,
+    pub created_at: i64,
+    pub vote_count: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts-gen", derive(TS))]
 #[cfg_attr(
@@ -134,8 +153,7 @@ pub struct RoomSnapshot {
     pub presence: Vec<Presence>,
     pub topics: Vec<Topic>,
     pub active_topic_id: Option<String>,
-    #[cfg_attr(feature = "ts-gen", ts(type = "unknown[]"))]
-    pub questions: Vec<JsonValue>,
+    pub questions: Vec<Question>,
     pub my_votes: Vec<String>,
     #[cfg_attr(feature = "ts-gen", ts(type = "unknown[]"))]
     pub boards: Vec<JsonValue>,
@@ -235,6 +253,33 @@ pub enum ClientMsg {
         topic_id: String,
         done: bool,
     },
+    SubmitQuestion {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        text: String,
+        anonymous: bool,
+    },
+    VoteQuestion {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        question_id: String,
+        vote: bool,
+    },
+    MarkQuestionAnswered {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        question_id: String,
+        answered: bool,
+    },
+    DeleteQuestion {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        question_id: String,
+    },
 }
 
 // ──────────────────────────── server → client ───────────────────────────
@@ -297,6 +342,32 @@ pub enum ServerMsg {
         topics: Vec<Topic>,
         active_topic_id: Option<String>,
     },
+    QuestionAdded {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        question: Question,
+    },
+    QuestionUpdated {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        question: Question,
+    },
+    QuestionDeleted {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        question_id: String,
+    },
+    VoteUpdated {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        question_id: String,
+        vote_count: u32,
+        voter_guest_id: String,
+    },
 }
 
 // Documented error codes used in M1 (extensible).
@@ -326,6 +397,7 @@ mod proto_export_tests {
         You::export().expect("export You");
         Guest::export().expect("export Guest");
         Presence::export().expect("export Presence");
+        Question::export().expect("export Question");
         RoomSummary::export().expect("export RoomSummary");
         RoomSnapshot::export().expect("export RoomSnapshot");
         ClientMsg::export().expect("export ClientMsg");
@@ -461,6 +533,185 @@ mod tests {
         let s = serde_json::to_string(&msg).unwrap();
         assert!(s.contains("\"type\":\"TopicTreeUpdated\""));
         assert!(s.contains("\"activeTopicId\":\"t1\""));
+        let _back: ServerMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn question_struct_round_trips() {
+        let q = Question {
+            id: "q1".into(),
+            room_id: "r1".into(),
+            author_guest_id: "g1".into(),
+            author_name: "Alice".into(),
+            anonymous: false,
+            text: "What is Rust?".into(),
+            answered: false,
+            created_at: 12345,
+            vote_count: 3,
+        };
+        let s = serde_json::to_string(&q).unwrap();
+        assert!(s.contains("\"id\":\"q1\""));
+        assert!(s.contains("\"voteCount\":3"));
+        assert!(s.contains("\"anonymous\":false"));
+        let _back: Question = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn question_anonymous_outbound_shaping() {
+        let q = Question {
+            id: "q1".into(),
+            room_id: "r1".into(),
+            author_guest_id: "g1".into(),
+            author_name: "Real Name".into(),
+            anonymous: true,
+            text: "Secret question".into(),
+            answered: false,
+            created_at: 12345,
+            vote_count: 0,
+        };
+        let s = serde_json::to_string(&q).unwrap();
+        assert!(s.contains("\"authorGuestId\":\"g1\""));
+        assert!(s.contains("\"authorName\":\"Real Name\""));
+        assert!(s.contains("\"anonymous\":true"));
+    }
+
+    #[test]
+    fn submit_question_round_trips() {
+        let msg = ClientMsg::SubmitQuestion {
+            v: 1,
+            id: Some("c1".into()),
+            text: "How does async work?".into(),
+            anonymous: true,
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"SubmitQuestion\""));
+        assert!(s.contains("\"text\":\"How does async work?\""));
+        assert!(s.contains("\"anonymous\":true"));
+        let _back: ClientMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn vote_question_round_trips() {
+        let msg = ClientMsg::VoteQuestion {
+            v: 1,
+            id: Some("c1".into()),
+            question_id: "q1".into(),
+            vote: true,
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"VoteQuestion\""));
+        assert!(s.contains("\"questionId\":\"q1\""));
+        assert!(s.contains("\"vote\":true"));
+        let _back: ClientMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn mark_question_answered_round_trips() {
+        let msg = ClientMsg::MarkQuestionAnswered {
+            v: 1,
+            id: Some("c1".into()),
+            question_id: "q1".into(),
+            answered: true,
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"MarkQuestionAnswered\""));
+        assert!(s.contains("\"questionId\":\"q1\""));
+        assert!(s.contains("\"answered\":true"));
+        let _back: ClientMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn delete_question_round_trips() {
+        let msg = ClientMsg::DeleteQuestion {
+            v: 1,
+            id: Some("c1".into()),
+            question_id: "q1".into(),
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"DeleteQuestion\""));
+        assert!(s.contains("\"questionId\":\"q1\""));
+        let _back: ClientMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn question_added_round_trips() {
+        let q = Question {
+            id: "q1".into(),
+            room_id: "r1".into(),
+            author_guest_id: "g1".into(),
+            author_name: "Alice".into(),
+            anonymous: false,
+            text: "How does borrowing work?".into(),
+            answered: false,
+            created_at: 12345,
+            vote_count: 0,
+        };
+        let msg = ServerMsg::QuestionAdded {
+            v: 1,
+            ts: 100,
+            seq: 5,
+            question: q,
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"QuestionAdded\""));
+        assert!(s.contains("\"id\":\"q1\""));
+        let _back: ServerMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn question_updated_round_trips() {
+        let q = Question {
+            id: "q1".into(),
+            room_id: "r1".into(),
+            author_guest_id: "g1".into(),
+            author_name: "Alice".into(),
+            anonymous: false,
+            text: "How does borrowing work?".into(),
+            answered: true,
+            created_at: 12345,
+            vote_count: 5,
+        };
+        let msg = ServerMsg::QuestionUpdated {
+            v: 1,
+            ts: 100,
+            seq: 6,
+            question: q,
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"QuestionUpdated\""));
+        assert!(s.contains("\"answered\":true"));
+        let _back: ServerMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn question_deleted_round_trips() {
+        let msg = ServerMsg::QuestionDeleted {
+            v: 1,
+            ts: 100,
+            seq: 7,
+            question_id: "q1".into(),
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"QuestionDeleted\""));
+        assert!(s.contains("\"questionId\":\"q1\""));
+        let _back: ServerMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn vote_updated_round_trips() {
+        let msg = ServerMsg::VoteUpdated {
+            v: 1,
+            ts: 100,
+            seq: 8,
+            question_id: "q1".into(),
+            vote_count: 5,
+            voter_guest_id: "g1".into(),
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"VoteUpdated\""));
+        assert!(s.contains("\"questionId\":\"q1\""));
+        assert!(s.contains("\"voteCount\":5"));
+        assert!(s.contains("\"voterGuestId\":\"g1\""));
         let _back: ServerMsg = serde_json::from_str(&s).unwrap();
     }
 }

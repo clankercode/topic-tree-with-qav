@@ -1,16 +1,19 @@
 import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { PresenceIndicator } from "../components/PresenceIndicator";
+import { QAPanel } from "../components/QAPanel";
 import { TopicTree } from "../components/TopicTree";
 import { getRoom, type RoomRecord } from "../lib/idb";
 import { setWsClient } from "../ws/manager";
 import { WsClient } from "../ws/client";
+import type { SortMode } from "../components/SortToggle";
 
 export function GuestSession() {
   const { roomId } = useParams();
   const [record, setRecord] = useState<RoomRecord | null | undefined>(
     undefined,
   );
+  const [sortMode, setSortMode] = useState<SortMode>("chronological");
 
   useEffect(() => {
     if (!roomId) {
@@ -87,7 +90,12 @@ export function GuestSession() {
           </div>
           <PresenceIndicator />
         </header>
-        <TopicTree />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <TopicTree />
+          <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))]">
+            <QAPanel sortMode={sortMode} onSortChange={setSortMode} />
+          </section>
+        </div>
       </div>
     </main>
   );

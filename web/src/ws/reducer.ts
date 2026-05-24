@@ -23,6 +23,34 @@ export function applyServerMessage(msg: ServerMsg): void {
         msg.seq,
       );
       return;
+    case "QuestionAdded":
+      store.applyQuestionAdded(
+        (msg as Extract<ServerMsg, { type: "QuestionAdded" }>).question,
+        msg.seq,
+      );
+      return;
+    case "QuestionUpdated":
+      store.applyQuestionUpdated(
+        (msg as Extract<ServerMsg, { type: "QuestionUpdated" }>).question,
+        msg.seq,
+      );
+      return;
+    case "QuestionDeleted":
+      store.applyQuestionDeleted(
+        (msg as Extract<ServerMsg, { type: "QuestionDeleted" }>).questionId,
+        msg.seq,
+      );
+      return;
+    case "VoteUpdated": {
+      const voteMsg = msg as Extract<ServerMsg, { type: "VoteUpdated" }>;
+      store.applyVoteUpdated(
+        voteMsg.questionId,
+        voteMsg.voteCount,
+        voteMsg.voterGuestId,
+        msg.seq,
+      );
+      return;
+    }
     default:
       store.setLastSeq(msg.seq);
   }

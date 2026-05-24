@@ -34,7 +34,7 @@ use uuid::Uuid;
 use crate::api::now_ms;
 use crate::auth::verify_admin_token;
 use crate::proto::{
-    error_codes, ClientMsg, Role, ServerMsg, Topic, TopicStatus, You, PROTOCOL_VERSION,
+    error_codes, ClientMsg, Question, Role, ServerMsg, Topic, TopicStatus, You, PROTOCOL_VERSION,
 };
 use crate::room::Room;
 use crate::state::AppState;
@@ -786,6 +786,172 @@ async fn handle_text(
             }
             Ok(())
         }
+        ClientMsg::SubmitQuestion {
+            id,
+            text,
+            anonymous,
+            ..
+        } => {
+            let text = text.trim().to_string();
+            if text.is_empty() || text.len() > 500 {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "question text must be 1..=500 chars",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            let question_id = Uuid::new_v4().to_string();
+            let now = now_ms();
+            let presence = room.presence();
+            let author_name = presence
+                .iter()
+                .find(|p| p.guest_id == guest_id)
+                .map(|p| p.display_name.clone())
+                .unwrap_or_else(|| "Anonymous".to_string());
+            let question = Question {
+                id: question_id.clone(),
+                room_id: room.id.clone(),
+                author_guest_id: guest_id.to_string(),
+                author_name,
+                anonymous,
+                text,
+                answered: false,
+                created_at: now,
+                vote_count: 0,
+            };
+            room.add_question(question.clone());
+            broadcast_question_added(room, &question);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::VoteQuestion {
+            id,
+            question_id,
+            vote,
+            ..
+        } => {
+            let (count, _) = match room.vote_question(&question_id, guest_id, vote) {
+                Some(c) => c,
+                None => {
+                    let _ = send(
+                        sink,
+                        &error_frame(
+                            error_codes::BAD_REQUEST,
+                            "question not found",
+                            id,
+                            room.current_seq(),
+                        ),
+                    )
+                    .await;
+                    return Ok(());
+                }
+            };
+            broadcast_vote_updated(room, &question_id, count, guest_id);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::MarkQuestionAnswered {
+            id,
+            question_id,
+            answered,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let mut question = match room.get_question(&question_id) {
+                Some(q) => q,
+                None => {
+                    let _ = send(
+                        sink,
+                        &error_frame(
+                            error_codes::BAD_REQUEST,
+                            "question not found",
+                            id,
+                            room.current_seq(),
+                        ),
+                    )
+                    .await;
+                    return Ok(());
+                }
+            };
+            question.answered = answered;
+            if !room.update_question(question.clone()) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "question not found",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            broadcast_question_updated(room, &question);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::DeleteQuestion {
+            id, question_id, ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            room.delete_question(&question_id);
+            broadcast_question_deleted(room, &question_id);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -811,6 +977,57 @@ fn broadcast_topic_tree(room: &Arc<Room>) {
         seq,
         topics: room.topics(),
         active_topic_id: room.active_topic_id(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_question_added(room: &Arc<Room>, question: &Question) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::QuestionAdded {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        question: question.clone(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_question_updated(room: &Arc<Room>, question: &Question) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::QuestionUpdated {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        question: question.clone(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_question_deleted(room: &Arc<Room>, question_id: &str) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::QuestionDeleted {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        question_id: question_id.to_string(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_vote_updated(
+    room: &Arc<Room>,
+    question_id: &str,
+    vote_count: u32,
+    voter_guest_id: &str,
+) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::VoteUpdated {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        question_id: question_id.to_string(),
+        vote_count,
+        voter_guest_id: voter_guest_id.to_string(),
     };
     let _ = room.broadcast.send(msg);
 }
