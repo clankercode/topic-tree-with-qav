@@ -1,4 +1,5 @@
 import { Check, Trash2, Plus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { Question } from "../ws/types";
 import { VoteButton } from "./VoteButton";
 import { useSessionStore } from "../store";
@@ -7,7 +8,6 @@ import { sendWsMsg } from "../ws/manager";
 interface QuestionItemProps {
   question: Question;
   hasVoted: boolean;
-  onJump?: () => void;
 }
 
 export function QuestionItem({ question, hasVoted }: QuestionItemProps) {
@@ -50,11 +50,13 @@ export function QuestionItem({ question, hasVoted }: QuestionItemProps) {
         question.answered ? "opacity-60" : ""
       }`}
     >
-      <VoteButton
-        questionId={question.id}
-        voteCount={question.voteCount}
-        hasVoted={hasVoted}
-      />
+      {me?.role !== "host" && (
+        <VoteButton
+          questionId={question.id}
+          voteCount={question.voteCount}
+          hasVoted={hasVoted}
+        />
+      )}
       <div className="flex flex-1 flex-col gap-1">
         <p className={`text-sm ${question.answered ? "text-[rgb(var(--muted))] line-through" : "text-[rgb(var(--foreground))]"}`}>
           {question.text}
@@ -107,21 +109,54 @@ interface QuestionListProps {
   questions: Question[];
   myVotes: Set<string>;
   sortMode: "chronological" | "votes";
-  autoScrollLocked?: boolean;
-  newQuestionsCount?: number;
-  onJumpToNew?: () => void;
-  onJumpToBottom?: () => void;
 }
 
 export function QuestionList({
   questions,
   myVotes,
   sortMode,
-  autoScrollLocked,
-  newQuestionsCount = 0,
-  onJumpToNew,
-  onJumpToBottom,
 }: QuestionListProps) {
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [newCount, setNewCount] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastAtBottomRef = useRef(true);
+  const lastCountRef = useRef(questions.length);
+
+  useEffect(() => {
+    const newQ = questions.length - lastCountRef.current;
+    if (newQ > 0 && lastAtBottomRef.current) {
+      setNewCount((c) => c + newQ);
+    }
+    lastCountRef.current = questions.length;
+  }, [questions.length]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    function handleScroll() {
+      if (!el) return;
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+      if (atBottom !== lastAtBottomRef.current) {
+        lastAtBottomRef.current = atBottom;
+        setIsAtBottom(atBottom);
+        if (atBottom) {
+          setNewCount(0);
+        }
+      }
+    }
+
+    el.addEventListener("scroll", handleScroll);
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  function handleJumpToNew() {
+    setNewCount(0);
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }
+
   const sorted = [...questions].sort((a, b) => {
     if (a.answered !== b.answered) {
       return a.answered ? 1 : -1;
@@ -136,7 +171,7 @@ export function QuestionList({
 
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden">
-      <div className="flex-1 overflow-y-auto" id="qa-list">
+      <div className="flex-1 overflow-y-auto" ref={scrollRef} id="qa-list">
         {sorted.length === 0 ? (
           <p className="py-8 text-center text-sm text-[rgb(var(--muted))]">No questions yet. Be the first to ask!</p>
         ) : (
@@ -148,18 +183,18 @@ export function QuestionList({
         )}
       </div>
 
-      {newQuestionsCount > 0 && (
+      {newCount > 0 && isAtBottom && (
         <button
-          onClick={onJumpToNew}
+          onClick={handleJumpToNew}
           className="absolute bottom-4 left-1/2 -translate-x-1/2 animate-bounce rounded-full bg-[rgb(var(--primary))] px-4 py-2 text-xs font-medium text-[rgb(var(--primary-fg))] shadow-lg"
         >
-          {newQuestionsCount} new question{newQuestionsCount > 1 ? "s" : ""}
+          {newCount} new question{newCount > 1 ? "s" : ""}
         </button>
       )}
 
-      {autoScrollLocked && (
+      {!isAtBottom && (
         <button
-          onClick={onJumpToBottom}
+          onClick={handleJumpToNew}
           className="absolute bottom-4 right-4 rounded-full bg-[rgb(var(--muted))] p-2 text-[rgb(var(--background))] shadow-lg hover:bg-[rgb(var(--foreground))]"
           aria-label="Jump to bottom"
         >

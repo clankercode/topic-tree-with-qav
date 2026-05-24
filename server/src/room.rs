@@ -306,6 +306,18 @@ impl Room {
 
     pub fn set_active_topic(&self, topic_id: Option<String>) {
         let mut g = self.inner.lock().expect("room inner");
+        let prev_id = g.active_topic_id.clone();
+        if let Some(prev) = prev_id {
+            let should_mark_done = match &topic_id {
+                Some(new_id) => prev != *new_id,
+                None => true,
+            };
+            if should_mark_done {
+                if let Some(t) = g.topics.get_mut(&prev) {
+                    t.status = TopicStatus::Done;
+                }
+            }
+        }
         g.active_topic_id = topic_id;
     }
 
@@ -782,7 +794,11 @@ impl Room {
             seq,
         ) = {
             let g = self.inner.lock().expect("room inner");
-            let questions: Vec<Question> = g.questions.values().cloned().collect();
+            let questions: Vec<Question> = g
+                .questions
+                .values()
+                .map(|q| q.to_outbound())
+                .collect();
             let my_votes: Vec<String> = g
                 .vote_index
                 .iter()

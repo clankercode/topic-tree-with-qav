@@ -12,6 +12,12 @@ export function applyServerMessage(msg: ServerMsg): void {
         msg.seq,
       );
       return;
+    case "RoomSnapshot":
+      store.applyWelcome(
+        (msg as Extract<ServerMsg, { type: "RoomSnapshot" }>).snapshot,
+        msg.seq,
+      );
+      return;
     case "PresenceUpdate":
       store.applyPresence(
         (msg as Extract<ServerMsg, { type: "PresenceUpdate" }>).guests,

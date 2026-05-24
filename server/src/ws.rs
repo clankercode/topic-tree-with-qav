@@ -877,6 +877,19 @@ async fn handle_text(
             anonymous,
             ..
         } => {
+            if role != Role::Guest {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::FORBIDDEN,
+                        "only guests can submit questions",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
             if room.is_muted(guest_id) {
                 let _ = send(
                     sink,
@@ -942,6 +955,19 @@ async fn handle_text(
             vote,
             ..
         } => {
+            if role != Role::Guest {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::FORBIDDEN,
+                        "only guests can vote",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
             if room.is_muted(guest_id) {
                 let _ = send(
                     sink,

@@ -147,6 +147,7 @@ export type ServerMsg =
   | (Envelope & { type: "Clicked"; boardId: string; clientId: string; guestId: string; displayName: string; x: number; y: number })
   | (Envelope & { type: "HandsUpdated"; hands: RaisedHand[] })
   | (Envelope & { type: "QuestionPromotedToTopic"; questionId: string; topic: Topic })
+  | (Envelope & { type: "RoomSnapshot"; snapshot: RoomSnapshot })
   | (Envelope & { type: "KickNotice" })
   | (Envelope & { type: string; [k: string]: unknown });
 
