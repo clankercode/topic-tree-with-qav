@@ -1,0 +1,51 @@
+name: Bug Report
+description: Report a bug in topic-tree-with-qav
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Bug Description
+        A clear and concise description of what the bug is.
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How to reproduce the bug (exact steps, URL/room state if applicable)
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version / Commit
+      description: "App version or git commit hash (run `git rev-parse HEAD`)"
+      placeholder: "e.g. db5bdea or https://topic-tree-with-qav.up.railway.app"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Browser Console Logs / Server Logs
+      description: Any relevant error messages from browser console or server logs
+      render: shell

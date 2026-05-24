@@ -8,9 +8,9 @@
 set -euo pipefail
 
 REPO="${REPO:-clankercode/topic-tree-with-qav}"
-DESCRIPTION="${DESCRIPTION:-Real-time host-audience interaction: topic tree, Q&A with voting, collaborative whiteboards, live cursors.}"
+DESCRIPTION="${DESCRIPTION:-Real-time host-audience interaction: topic tree, Q&A with voting, smooth whiteboards, raise-hand. Single Rust binary + React + SQLite, runs anywhere.}"
 HOMEPAGE="${HOMEPAGE:-https://clankercode.github.io/topic-tree-with-qav/}"
-TOPICS=(real-time websockets rust axum react typescript whiteboard q-and-a self-hosted)
+TOPICS=(real-time websocket websockets axum rust vite react excalidraw whiteboard q-and-a presentations teaching open-source)
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-}"
 
 DRY_RUN=0
@@ -59,19 +59,9 @@ run gh api -X PUT "/repos/$REPO/pages" \
 if [[ "$WITH_PROTECTION" -eq 1 ]]; then
   echo "[gh-repo-meta] applying branch protection to $DEFAULT_BRANCH"
   run gh api -X PUT "/repos/$REPO/branches/$DEFAULT_BRANCH/protection" \
-    --input - <<'JSON'
-{
-  "required_status_checks": {
-    "strict": true,
-    "contexts": ["lint", "test-web", "test-server", "proto-drift", "snapshot-pairs", "test-e2e"]
-  },
-  "enforce_admins": false,
-  "required_pull_request_reviews": { "required_approving_review_count": 0 },
-  "restrictions": null,
-  "allow_force_pushes": false,
-  "allow_deletions": false
-}
-JSON
+    -f required_status_checks='{"strict":true,"contexts":["CI"]}' \
+    -f enforce_admins=true \
+    -f required_pull_request_reviews='{"required_approving_review_count":1}'
 fi
 
 echo "[gh-repo-meta] done"

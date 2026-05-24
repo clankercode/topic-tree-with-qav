@@ -1,0 +1,37 @@
+name: Feature Request
+description: Suggest a new feature or improvement for topic-tree-with-qav
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Feature Description
+        A clear and concise description of the feature or improvement.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem it Solves
+      description: What problem does this feature solve? Why is it needed?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How would you like it to work? Any specific UX/UI suggestions?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative approaches you've considered?
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Screenshots, mockups, related issues, use-case details
