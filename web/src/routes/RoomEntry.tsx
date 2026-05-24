@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { getOrCreateGuestId, getRoom, upsertRoom } from "../lib/idb";
 
 export function RoomEntry() {
   const { roomId } = useParams();
+  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [joined, setJoined] = useState(false);
 
@@ -33,6 +34,7 @@ export function RoomEntry() {
       lastJoinedAt: now,
     });
     setJoined(true);
+    navigate(`/r/${roomId}/guest`, { replace: true });
   }
 
   return (

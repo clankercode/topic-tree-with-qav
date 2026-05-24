@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { About } from "./routes/About";
+import { GuestSession } from "./routes/GuestSession";
 import { Landing } from "./routes/Landing";
 import { RoomDispatch } from "./routes/RoomDispatch";
 import { RoomEntry } from "./routes/RoomEntry";
@@ -15,6 +16,7 @@ export function AppRoutes() {
       <Route path="/r/:roomId" element={<RoomDispatch />} />
       <Route path="/r/:roomId/join" element={<RoomEntry />} />
       <Route path="/r/:roomId/host" element={<HostSession />} />
+      <Route path="/r/:roomId/guest" element={<GuestSession />} />
     </Routes>
   );
 }
