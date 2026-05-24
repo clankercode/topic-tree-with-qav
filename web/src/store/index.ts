@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Guest, RoomSnapshot, RoomSummary } from "../ws/types";
+import type { Guest, RoomSnapshot, RoomSummary, Topic } from "../ws/types";
 import type { Role } from "../proto/generated";
 
 export interface Me {
@@ -12,9 +12,12 @@ export interface SessionState {
   room: RoomSummary | null;
   me: Me | null;
   presence: Guest[];
+  topics: Topic[];
+  activeTopicId: string | null;
   lastSeq: bigint | null;
   applyWelcome(snapshot: RoomSnapshot, seq: bigint): void;
   applyPresence(guests: Guest[], seq: bigint): void;
+  applyTopicTree(topics: Topic[], activeTopicId: string | null, seq: bigint): void;
   setLastSeq(seq: bigint): void;
   reset(): void;
 }
@@ -23,6 +26,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   room: null,
   me: null,
   presence: [],
+  topics: [],
+  activeTopicId: null,
   lastSeq: null,
   applyWelcome(snapshot, seq) {
     set({
@@ -33,16 +38,21 @@ export const useSessionStore = create<SessionState>((set) => ({
         guestId: snapshot.you.guestId,
       },
       presence: snapshot.guests,
+      topics: snapshot.topics,
+      activeTopicId: snapshot.activeTopicId,
       lastSeq: seq,
     });
   },
   applyPresence(guests, seq) {
     set({ presence: guests, lastSeq: seq });
   },
+  applyTopicTree(topics, activeTopicId, seq) {
+    set({ topics, activeTopicId, lastSeq: seq });
+  },
   setLastSeq(seq) {
     set({ lastSeq: seq });
   },
   reset() {
-    set({ room: null, me: null, presence: [], lastSeq: null });
+    set({ room: null, me: null, presence: [], topics: [], activeTopicId: null, lastSeq: null });
   },
 }));

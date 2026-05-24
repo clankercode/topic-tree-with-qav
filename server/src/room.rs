@@ -15,7 +15,9 @@ use std::sync::{Arc, Mutex};
 use dashmap::DashMap;
 use tokio::sync::broadcast;
 
-use crate::proto::{Guest, Presence, RoomSnapshot, RoomSummary, ServerMsg, You};
+use crate::proto::{
+    Guest, Presence, RoomSnapshot, RoomSummary, ServerMsg, Topic, TopicStatus, You,
+};
 
 /// Broadcast channel capacity per room. If a writer lags more than this
 /// many messages, its receiver receives `RecvError::Lagged` and the
@@ -24,6 +26,7 @@ const BROADCAST_CAPACITY: usize = 256;
 
 pub type ClientId = String;
 pub type GuestId = String;
+pub type TopicId = String;
 
 #[derive(Debug, Clone)]
 pub struct PresenceEntry {
@@ -66,6 +69,8 @@ pub struct Room {
 struct RoomInner {
     seq: u64,
     presence: BTreeMap<GuestId, PresenceEntry>,
+    topics: BTreeMap<TopicId, Topic>,
+    active_topic_id: Option<TopicId>,
 }
 
 impl Room {
@@ -78,6 +83,8 @@ impl Room {
             inner: Mutex::new(RoomInner {
                 seq: 0,
                 presence: BTreeMap::new(),
+                topics: BTreeMap::new(),
+                active_topic_id: None,
             }),
             broadcast: tx,
         }
@@ -173,14 +180,92 @@ impl Room {
         g.presence.values().map(|p| p.to_proto_presence()).collect()
     }
 
+    pub fn topics(&self) -> Vec<Topic> {
+        let g = self.inner.lock().expect("room inner");
+        g.topics.values().cloned().collect()
+    }
+
+    pub fn active_topic_id(&self) -> Option<TopicId> {
+        let g = self.inner.lock().expect("room inner");
+        g.active_topic_id.clone()
+    }
+
+    pub fn add_topic(&self, topic: Topic) {
+        let mut g = self.inner.lock().expect("room inner");
+        g.topics.insert(topic.id.clone(), topic);
+    }
+
+    pub fn rename_topic(&self, topic_id: &str, title: String) -> bool {
+        let mut g = self.inner.lock().expect("room inner");
+        let Some(t) = g.topics.get_mut(topic_id) else {
+            return false;
+        };
+        t.title = title;
+        true
+    }
+
+    pub fn move_topic(&self, topic_id: &str, new_parent_id: Option<String>, new_ord: f64) -> bool {
+        let mut g = self.inner.lock().expect("room inner");
+        let Some(t) = g.topics.get_mut(topic_id) else {
+            return false;
+        };
+        t.parent_id = new_parent_id;
+        t.ord = new_ord;
+        true
+    }
+
+    pub fn delete_topic(&self, topic_id: &str) -> bool {
+        let mut g = self.inner.lock().expect("room inner");
+        g.topics.retain(|id, _| id != topic_id);
+        if g.active_topic_id.as_deref() == Some(topic_id) {
+            g.active_topic_id = None;
+        }
+        true
+    }
+
+    pub fn set_active_topic(&self, topic_id: Option<String>) {
+        let mut g = self.inner.lock().expect("room inner");
+        g.active_topic_id = topic_id;
+    }
+
+    pub fn mark_topic_done(&self, topic_id: &str, done: bool) -> bool {
+        let mut g = self.inner.lock().expect("room inner");
+        let Some(t) = g.topics.get_mut(topic_id) else {
+            return false;
+        };
+        t.status = if done {
+            TopicStatus::Done
+        } else {
+            TopicStatus::Pending
+        };
+        true
+    }
+
+    pub fn load_topics(&self, topics: Vec<Topic>, active_topic_id: Option<String>) {
+        let mut g = self.inner.lock().expect("room inner");
+        g.topics.clear();
+        for t in topics {
+            g.topics.insert(t.id.clone(), t);
+        }
+        g.active_topic_id = active_topic_id;
+    }
+
     /// Build the M1 Welcome snapshot for a given client. Topics/boards/
     /// questions/hands all empty in M1.
     pub fn snapshot_for(&self, you: You, _my_guest_id: &str) -> RoomSnapshot {
-        let (guests, presence, seq) = {
+        let (guests, presence, topics, active_topic_id, seq) = {
             let g = self.inner.lock().expect("room inner");
             (
-                g.presence.values().map(|p| p.to_proto_guest()).collect(),
-                g.presence.values().map(|p| p.to_proto_presence()).collect(),
+                g.presence
+                    .values()
+                    .map(|p| p.to_proto_guest())
+                    .collect::<Vec<_>>(),
+                g.presence
+                    .values()
+                    .map(|p| p.to_proto_presence())
+                    .collect::<Vec<_>>(),
+                g.topics.values().cloned().collect::<Vec<_>>(),
+                g.active_topic_id.clone(),
                 g.seq,
             )
         };
@@ -193,8 +278,8 @@ impl Room {
             you,
             guests,
             presence,
-            topics: vec![],
-            active_topic_id: None,
+            topics,
+            active_topic_id,
             questions: vec![],
             my_votes: vec![],
             boards: vec![],
@@ -300,5 +385,158 @@ mod tests {
         let b = reg.get_or_create("R", "T", 0);
         assert!(Arc::ptr_eq(&a, &b));
         assert_eq!(reg.len(), 1);
+    }
+
+    #[test]
+    fn topic_add_list_get() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_topic(Topic {
+            id: "t1".into(),
+            parent_id: None,
+            title: "Topic 1".into(),
+            ord: 1.0,
+            status: TopicStatus::Pending,
+            created_at: 100,
+        });
+        let topics = r.topics();
+        assert_eq!(topics.len(), 1);
+        assert_eq!(topics[0].title, "Topic 1");
+        assert!(r.active_topic_id().is_none());
+    }
+
+    #[test]
+    fn topic_rename() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_topic(Topic {
+            id: "t1".into(),
+            parent_id: None,
+            title: "Original".into(),
+            ord: 1.0,
+            status: TopicStatus::Pending,
+            created_at: 100,
+        });
+        assert!(r.rename_topic("t1", "Renamed".into()));
+        assert_eq!(r.topics()[0].title, "Renamed");
+        assert!(!r.rename_topic("nonexistent", "X".into()));
+    }
+
+    #[test]
+    fn topic_move() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_topic(Topic {
+            id: "t1".into(),
+            parent_id: None,
+            title: "Topic".into(),
+            ord: 1.0,
+            status: TopicStatus::Pending,
+            created_at: 100,
+        });
+        assert!(r.move_topic("t1", Some("parent1".into()), 2.5));
+        let t = r.topics().pop().unwrap();
+        assert_eq!(t.parent_id, Some("parent1".into()));
+        assert_eq!(t.ord, 2.5);
+    }
+
+    #[test]
+    fn topic_delete() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_topic(Topic {
+            id: "t1".into(),
+            parent_id: None,
+            title: "Topic".into(),
+            ord: 1.0,
+            status: TopicStatus::Pending,
+            created_at: 100,
+        });
+        assert_eq!(r.topics().len(), 1);
+        r.delete_topic("t1");
+        assert!(r.topics().is_empty());
+    }
+
+    #[test]
+    fn topic_set_active() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_topic(Topic {
+            id: "t1".into(),
+            parent_id: None,
+            title: "Topic".into(),
+            ord: 1.0,
+            status: TopicStatus::Pending,
+            created_at: 100,
+        });
+        assert!(r.active_topic_id().is_none());
+        r.set_active_topic(Some("t1".into()));
+        assert_eq!(r.active_topic_id(), Some("t1".into()));
+        r.set_active_topic(None);
+        assert!(r.active_topic_id().is_none());
+    }
+
+    #[test]
+    fn topic_mark_done() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_topic(Topic {
+            id: "t1".into(),
+            parent_id: None,
+            title: "Topic".into(),
+            ord: 1.0,
+            status: TopicStatus::Pending,
+            created_at: 100,
+        });
+        assert_eq!(r.topics()[0].status, TopicStatus::Pending);
+        assert!(r.mark_topic_done("t1", true));
+        assert_eq!(r.topics()[0].status, TopicStatus::Done);
+        assert!(r.mark_topic_done("t1", false));
+        assert_eq!(r.topics()[0].status, TopicStatus::Pending);
+    }
+
+    #[test]
+    fn at_most_one_active() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_topic(Topic {
+            id: "t1".into(),
+            parent_id: None,
+            title: "Topic 1".into(),
+            ord: 1.0,
+            status: TopicStatus::Pending,
+            created_at: 100,
+        });
+        r.add_topic(Topic {
+            id: "t2".into(),
+            parent_id: None,
+            title: "Topic 2".into(),
+            ord: 2.0,
+            status: TopicStatus::Pending,
+            created_at: 101,
+        });
+        r.set_active_topic(Some("t1".into()));
+        r.set_active_topic(Some("t2".into()));
+        assert_eq!(r.active_topic_id(), Some("t2".into()));
+    }
+
+    #[test]
+    fn load_topics_replaces_existing() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_topic(Topic {
+            id: "t1".into(),
+            parent_id: None,
+            title: "Old".into(),
+            ord: 1.0,
+            status: TopicStatus::Pending,
+            created_at: 100,
+        });
+        r.load_topics(
+            vec![Topic {
+                id: "t2".into(),
+                parent_id: None,
+                title: "New".into(),
+                ord: 1.0,
+                status: TopicStatus::Done,
+                created_at: 200,
+            }],
+            Some("t2".into()),
+        );
+        assert_eq!(r.topics().len(), 1);
+        assert_eq!(r.topics()[0].title, "New");
+        assert_eq!(r.active_topic_id(), Some("t2".into()));
     }
 }

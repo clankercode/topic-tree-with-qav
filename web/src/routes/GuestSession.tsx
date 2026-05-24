@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
-import { getRoom, type RoomRecord } from "../lib/idb";
 import { PresenceIndicator } from "../components/PresenceIndicator";
+import { TopicTree } from "../components/TopicTree";
+import { getRoom, type RoomRecord } from "../lib/idb";
+import { setWsClient } from "../ws/manager";
 import { WsClient } from "../ws/client";
 
 export function GuestSession() {
@@ -43,15 +45,18 @@ export function GuestSession() {
         },
         onClose: () => {
           console.log("guest ws disconnected");
+          setWsClient(null);
         },
         onError: (err) => {
           console.error("guest ws error", err);
         },
       });
       client.start();
+      setWsClient(client);
     });
     return () => {
       alive = false;
+      setWsClient(null);
       client?.stop();
     };
   }, [roomId]);
@@ -82,12 +87,7 @@ export function GuestSession() {
           </div>
           <PresenceIndicator />
         </header>
-        <section className="rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-6">
-          <h2 className="text-lg font-medium">Session content</h2>
-          <p className="text-sm text-[rgb(var(--muted))]">
-            Topic tree, Q&amp;A, and whiteboards will appear here.
-          </p>
-        </section>
+        <TopicTree />
       </div>
     </main>
   );

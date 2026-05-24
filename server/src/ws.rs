@@ -34,7 +34,7 @@ use uuid::Uuid;
 use crate::api::now_ms;
 use crate::auth::verify_admin_token;
 use crate::proto::{
-    error_codes, ClientMsg, Role, ServerMsg, You, PROTOCOL_VERSION,
+    error_codes, ClientMsg, Role, ServerMsg, Topic, TopicStatus, You, PROTOCOL_VERSION,
 };
 use crate::room::Room;
 use crate::state::AppState;
@@ -85,7 +85,11 @@ async fn run_connection(
         Ok(Some(Err(e))) => return Err(ConnError::Io(e.to_string())),
         Ok(None) => return Err(ConnError::NoHello),
         Err(_) => {
-            let _ = send(&mut sink, &error_frame(error_codes::PROTOCOL_VIOLATION, "hello timeout", None, 0)).await;
+            let _ = send(
+                &mut sink,
+                &error_frame(error_codes::PROTOCOL_VIOLATION, "hello timeout", None, 0),
+            )
+            .await;
             return Err(ConnError::NoHello);
         }
     };
@@ -93,7 +97,16 @@ async fn run_connection(
         Message::Text(t) => t,
         Message::Close(_) => return Err(ConnError::NoHello),
         _ => {
-            let _ = send(&mut sink, &error_frame(error_codes::PROTOCOL_VIOLATION, "expected text Hello", None, 0)).await;
+            let _ = send(
+                &mut sink,
+                &error_frame(
+                    error_codes::PROTOCOL_VIOLATION,
+                    "expected text Hello",
+                    None,
+                    0,
+                ),
+            )
+            .await;
             return Err(ConnError::Protocol("non-text hello".into()));
         }
     };
@@ -101,29 +114,71 @@ async fn run_connection(
     let parsed: ClientMsg = match serde_json::from_str(&hello_text) {
         Ok(m) => m,
         Err(e) => {
-            let _ = send(&mut sink, &error_frame(error_codes::BAD_REQUEST, &format!("bad hello: {e}"), None, 0)).await;
+            let _ = send(
+                &mut sink,
+                &error_frame(
+                    error_codes::BAD_REQUEST,
+                    &format!("bad hello: {e}"),
+                    None,
+                    0,
+                ),
+            )
+            .await;
             return Err(ConnError::Protocol(e.to_string()));
         }
     };
 
     let (role_req, guest_id, display_name, admin_token, hello_id) = match parsed {
         ClientMsg::Hello {
-            v, id, role, guest_id, display_name, admin_token,
+            v,
+            id,
+            role,
+            guest_id,
+            display_name,
+            admin_token,
         } => {
             if v != PROTOCOL_VERSION {
-                let _ = send(&mut sink, &error_frame(error_codes::BAD_REQUEST, "unsupported protocol version", id, 0)).await;
+                let _ = send(
+                    &mut sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "unsupported protocol version",
+                        id,
+                        0,
+                    ),
+                )
+                .await;
                 return Err(ConnError::Protocol("bad v".into()));
             }
-            (role, guest_id, display_name.unwrap_or_default(), admin_token, id)
+            (
+                role,
+                guest_id,
+                display_name.unwrap_or_default(),
+                admin_token,
+                id,
+            )
         }
         _ => {
-            let _ = send(&mut sink, &error_frame(error_codes::PROTOCOL_VIOLATION, "first message must be Hello", None, 0)).await;
+            let _ = send(
+                &mut sink,
+                &error_frame(
+                    error_codes::PROTOCOL_VIOLATION,
+                    "first message must be Hello",
+                    None,
+                    0,
+                ),
+            )
+            .await;
             return Err(ConnError::Protocol("first not hello".into()));
         }
     };
 
     if guest_id.trim().is_empty() {
-        let _ = send(&mut sink, &error_frame(error_codes::BAD_REQUEST, "guestId required", hello_id, 0)).await;
+        let _ = send(
+            &mut sink,
+            &error_frame(error_codes::BAD_REQUEST, "guestId required", hello_id, 0),
+        )
+        .await;
         return Err(ConnError::Protocol("empty guest id".into()));
     }
 
@@ -132,14 +187,28 @@ async fn run_connection(
         let db = state.db.clone();
         let id = room_id.clone();
         task::spawn_blocking(move || -> rusqlite::Result<Option<(String, String, i64)>> {
-            let conn = db.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+            let conn = db
+                .get()
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
             conn.query_row(
                 "SELECT id, title, created_at FROM rooms WHERE id = ?1",
                 rusqlite::params![id],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)),
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                    ))
+                },
             )
             .map(Some)
-            .or_else(|e| if matches!(e, rusqlite::Error::QueryReturnedNoRows) { Ok(None) } else { Err(e) })
+            .or_else(|e| {
+                if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            })
         })
         .await
         .map_err(|e| ConnError::Io(e.to_string()))?
@@ -147,12 +216,20 @@ async fn run_connection(
     let (rid, title, created_at) = match row {
         Ok(Some(r)) => r,
         Ok(None) => {
-            let _ = send(&mut sink, &error_frame(error_codes::ROOM_NOT_FOUND, "no such room", hello_id, 0)).await;
+            let _ = send(
+                &mut sink,
+                &error_frame(error_codes::ROOM_NOT_FOUND, "no such room", hello_id, 0),
+            )
+            .await;
             return Err(ConnError::Protocol("room missing".into()));
         }
         Err(e) => {
             tracing::error!(error = %e, room = %room_id, "room lookup failed");
-            let _ = send(&mut sink, &error_frame(error_codes::BAD_REQUEST, "lookup failed", hello_id, 0)).await;
+            let _ = send(
+                &mut sink,
+                &error_frame(error_codes::BAD_REQUEST, "lookup failed", hello_id, 0),
+            )
+            .await;
             return Err(ConnError::Io(e.to_string()));
         }
     };
@@ -164,7 +241,16 @@ async fn run_connection(
             let token = match &admin_token {
                 Some(t) if !t.is_empty() => t.clone(),
                 _ => {
-                    let _ = send(&mut sink, &error_frame(error_codes::UNAUTHORIZED, "adminToken required for host", hello_id, 0)).await;
+                    let _ = send(
+                        &mut sink,
+                        &error_frame(
+                            error_codes::UNAUTHORIZED,
+                            "adminToken required for host",
+                            hello_id,
+                            0,
+                        ),
+                    )
+                    .await;
                     return Err(ConnError::Protocol("no admin token".into()));
                 }
             };
@@ -172,7 +258,9 @@ async fn run_connection(
                 let db = state.db.clone();
                 let id = rid.clone();
                 task::spawn_blocking(move || -> rusqlite::Result<String> {
-                    let conn = db.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                    let conn = db
+                        .get()
+                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                     conn.query_row(
                         "SELECT admin_token_hash FROM rooms WHERE id = ?1",
                         rusqlite::params![id],
@@ -184,7 +272,16 @@ async fn run_connection(
                 .ok()
             };
             let Some(hash) = stored_hash else {
-                let _ = send(&mut sink, &error_frame(error_codes::UNAUTHORIZED, "no admin token configured", hello_id, 0)).await;
+                let _ = send(
+                    &mut sink,
+                    &error_frame(
+                        error_codes::UNAUTHORIZED,
+                        "no admin token configured",
+                        hello_id,
+                        0,
+                    ),
+                )
+                .await;
                 return Err(ConnError::Protocol("no hash".into()));
             };
             let ok = task::spawn_blocking(move || verify_admin_token(&token, &hash))
@@ -192,7 +289,16 @@ async fn run_connection(
                 .map_err(|e| ConnError::Io(e.to_string()))?
                 .unwrap_or(false);
             if !ok {
-                let _ = send(&mut sink, &error_frame(error_codes::UNAUTHORIZED, "invalid admin token", hello_id, 0)).await;
+                let _ = send(
+                    &mut sink,
+                    &error_frame(
+                        error_codes::UNAUTHORIZED,
+                        "invalid admin token",
+                        hello_id,
+                        0,
+                    ),
+                )
+                .await;
                 return Err(ConnError::Protocol("bad admin token".into()));
             }
             Role::Host
@@ -203,7 +309,10 @@ async fn run_connection(
     let room = state.rooms.get_or_create(&rid, &title, created_at);
     let client_id = Uuid::new_v4().to_string();
     let effective_name = if display_name.is_empty() {
-        match role { Role::Host => "Host".to_string(), Role::Guest => "Guest".to_string() }
+        match role {
+            Role::Host => "Host".to_string(),
+            Role::Guest => "Guest".to_string(),
+        }
     } else {
         display_name
     };
@@ -350,44 +459,333 @@ async fn handle_text(
     let msg: ClientMsg = match serde_json::from_str(&text) {
         Ok(m) => m,
         Err(e) => {
-            let _ = send(sink, &error_frame(error_codes::BAD_REQUEST, &format!("parse: {e}"), None, room.current_seq())).await;
+            let _ = send(
+                sink,
+                &error_frame(
+                    error_codes::BAD_REQUEST,
+                    &format!("parse: {e}"),
+                    None,
+                    room.current_seq(),
+                ),
+            )
+            .await;
             return Err(e.to_string());
         }
     };
     match msg {
         ClientMsg::Hello { id, .. } => {
-            let _ = send(sink, &error_frame(error_codes::PROTOCOL_VIOLATION, "duplicate Hello on established connection", id, room.current_seq())).await;
+            let _ = send(
+                sink,
+                &error_frame(
+                    error_codes::PROTOCOL_VIOLATION,
+                    "duplicate Hello on established connection",
+                    id,
+                    room.current_seq(),
+                ),
+            )
+            .await;
             Ok(())
         }
         ClientMsg::SetDisplayName { id, name, .. } => {
             let trimmed = name.trim().to_string();
             if trimmed.is_empty() || trimmed.len() > 64 {
-                let _ = send(sink, &error_frame(error_codes::BAD_REQUEST, "name must be 1..=64 chars", id, room.current_seq())).await;
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "name must be 1..=64 chars",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
                 return Ok(());
             }
             if room.set_display_name(guest_id, trimmed) {
                 broadcast_presence(room);
             }
             if let Some(rid) = id {
-                let ack = ServerMsg::Ack { v: PROTOCOL_VERSION, ts: now_ms(), seq: room.current_seq(), ref_id: rid };
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
                 let _ = send(sink, &ack).await;
             }
             Ok(())
         }
         ClientMsg::GetSnapshot { id, .. } => {
             let snap = room.snapshot_for(
-                You { client_id: client_id.to_string(), role, guest_id: guest_id.to_string() },
+                You {
+                    client_id: client_id.to_string(),
+                    role,
+                    guest_id: guest_id.to_string(),
+                },
                 guest_id,
             );
-            let msg = ServerMsg::RoomSnapshot { v: PROTOCOL_VERSION, ts: now_ms(), seq: room.current_seq(), snapshot: snap };
+            let msg = ServerMsg::RoomSnapshot {
+                v: PROTOCOL_VERSION,
+                ts: now_ms(),
+                seq: room.current_seq(),
+                snapshot: snap,
+            };
             send(sink, &msg).await?;
             if let Some(rid) = id {
-                let ack = ServerMsg::Ack { v: PROTOCOL_VERSION, ts: now_ms(), seq: room.current_seq(), ref_id: rid };
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
                 let _ = send(sink, &ack).await;
             }
             Ok(())
         }
         ClientMsg::Pong { .. } => Ok(()),
+        ClientMsg::AddTopic {
+            id,
+            parent_id,
+            title,
+            after_id,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let title = title.trim().to_string();
+            if title.is_empty() || title.len() > 200 {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "title must be 1..=200 chars",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            let topic_id = Uuid::new_v4().to_string();
+            let now = now_ms();
+            let ord = if let Some(after) = after_id {
+                room.topics()
+                    .iter()
+                    .find(|t| t.id == after)
+                    .map(|t| t.ord + 0.5)
+                    .unwrap_or(1.0)
+            } else {
+                room.topics().iter().map(|t| t.ord).fold(0.0, f64::max) + 1.0
+            };
+            let topic = Topic {
+                id: topic_id,
+                parent_id,
+                title,
+                ord,
+                status: TopicStatus::Pending,
+                created_at: now,
+            };
+            room.add_topic(topic);
+            broadcast_topic_tree(room);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::RenameTopic {
+            id,
+            topic_id,
+            title,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let title = title.trim().to_string();
+            if title.is_empty() || title.len() > 200 {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "title must be 1..=200 chars",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            if !room.rename_topic(&topic_id, title) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "topic not found",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            broadcast_topic_tree(room);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::MoveTopic {
+            id,
+            topic_id,
+            new_parent_id,
+            after_id,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let ord = if let Some(after) = after_id {
+                room.topics()
+                    .iter()
+                    .find(|t| t.id == *after)
+                    .map(|t| t.ord + 0.001)
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            if !room.move_topic(&topic_id, new_parent_id, ord) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "topic not found",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            broadcast_topic_tree(room);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::DeleteTopic { id, topic_id, .. } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            room.delete_topic(&topic_id);
+            broadcast_topic_tree(room);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::SetActiveTopic { id, topic_id, .. } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            room.set_active_topic(topic_id.clone());
+            broadcast_topic_tree(room);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::MarkTopicDone {
+            id, topic_id, done, ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            if !room.mark_topic_done(&topic_id, done) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "topic not found",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            broadcast_topic_tree(room);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -402,6 +800,18 @@ fn broadcast_presence(room: &Arc<Room>) {
     // A send error here just means there are no subscribers right now;
     // safe to ignore — the broadcast lives on the room and new subscribers
     // will pick up presence in their next snapshot.
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_topic_tree(room: &Arc<Room>) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::TopicTreeUpdated {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        topics: room.topics(),
+        active_topic_id: room.active_topic_id(),
+    };
     let _ = room.broadcast.send(msg);
 }
 

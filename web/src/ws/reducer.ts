@@ -16,6 +16,13 @@ export function applyServerMessage(msg: ServerMsg): void {
         msg.seq,
       );
       return;
+    case "TopicTreeUpdated":
+      store.applyTopicTree(
+        (msg as Extract<ServerMsg, { type: "TopicTreeUpdated" }>).topics,
+        (msg as Extract<ServerMsg, { type: "TopicTreeUpdated" }>).activeTopicId,
+        msg.seq,
+      );
+      return;
     default:
       store.setLastSeq(msg.seq);
   }

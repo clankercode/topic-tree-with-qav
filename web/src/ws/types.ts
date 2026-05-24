@@ -7,6 +7,17 @@ export interface Guest {
   joinedAt: number;
 }
 
+export type TopicStatus = "pending" | "done";
+
+export interface Topic {
+  id: string;
+  parentId: string | null;
+  title: string;
+  ord: number;
+  status: TopicStatus;
+  createdAt: number;
+}
+
 export interface RoomSummary {
   id: string;
   title: string;
@@ -17,7 +28,7 @@ export interface RoomSnapshot {
   room: RoomSummary;
   you: You & { guestId: string };
   guests: Guest[];
-  topics: unknown[];
+  topics: Topic[];
   questions: unknown[];
   boards: unknown[];
   hands: unknown[];
@@ -47,6 +58,7 @@ export type ServerMsg =
       message: string;
       refId?: string;
     })
+  | (Envelope & { type: "TopicTreeUpdated"; topics: Topic[]; activeTopicId: string | null })
   | (Envelope & { type: string; [k: string]: unknown });
 
 export interface ClientHello {

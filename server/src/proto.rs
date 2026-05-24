@@ -35,17 +35,32 @@ pub enum Role {
     Guest,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts-gen", derive(TS))]
 #[cfg_attr(
     feature = "ts-gen",
     ts(export, export_to = "../../web/src/proto/generated.ts")
 )]
 #[serde(rename_all = "camelCase")]
-pub struct You {
-    pub client_id: String,
-    pub role: Role,
-    pub guest_id: String,
+pub enum TopicStatus {
+    Pending,
+    Done,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub struct Topic {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub title: String,
+    pub ord: f64,
+    pub status: TopicStatus,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -90,9 +105,22 @@ pub struct RoomSummary {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub struct You {
+    pub client_id: String,
+    pub role: Role,
+    pub guest_id: String,
+}
+
 /// Welcome snapshot delivered on Hello + on every GetSnapshot. M1 carries
 /// only the always-present fields; later phases populate topics/boards/etc.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "ts-gen", derive(TS))]
 #[cfg_attr(
     feature = "ts-gen",
@@ -104,8 +132,7 @@ pub struct RoomSnapshot {
     pub you: You,
     pub guests: Vec<Guest>,
     pub presence: Vec<Presence>,
-    #[cfg_attr(feature = "ts-gen", ts(type = "unknown[]"))]
-    pub topics: Vec<JsonValue>,
+    pub topics: Vec<Topic>,
     pub active_topic_id: Option<String>,
     #[cfg_attr(feature = "ts-gen", ts(type = "unknown[]"))]
     pub questions: Vec<JsonValue>,
@@ -160,6 +187,53 @@ pub enum ClientMsg {
         v: u8,
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
+    },
+    AddTopic {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent_id: Option<String>,
+        title: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        after_id: Option<String>,
+    },
+    RenameTopic {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        topic_id: String,
+        title: String,
+    },
+    MoveTopic {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        topic_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        new_parent_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        after_id: Option<String>,
+    },
+    DeleteTopic {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        topic_id: String,
+    },
+    SetActiveTopic {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        topic_id: Option<String>,
+    },
+    MarkTopicDone {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        topic_id: String,
+        done: bool,
     },
 }
 
@@ -216,6 +290,13 @@ pub enum ServerMsg {
         ts: i64,
         seq: u64,
     },
+    TopicTreeUpdated {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        topics: Vec<Topic>,
+        active_topic_id: Option<String>,
+    },
 }
 
 // Documented error codes used in M1 (extensible).
@@ -240,6 +321,8 @@ mod proto_export_tests {
     #[test]
     fn proto_export() {
         Role::export().expect("export Role");
+        TopicStatus::export().expect("export TopicStatus");
+        Topic::export().expect("export Topic");
         You::export().expect("export You");
         Guest::export().expect("export Guest");
         Presence::export().expect("export Presence");
@@ -314,5 +397,70 @@ mod tests {
         assert!(s.contains("\"type\":\"Welcome\""));
         assert!(s.contains("\"clientId\""));
         assert!(s.contains("\"activeTopicId\":null"));
+    }
+
+    #[test]
+    fn add_topic_round_trips() {
+        let msg = ClientMsg::AddTopic {
+            v: 1,
+            id: Some("c1".into()),
+            parent_id: None,
+            title: "Topic 1".into(),
+            after_id: None,
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"AddTopic\""));
+        assert!(s.contains("\"title\":\"Topic 1\""));
+        let _back: ClientMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn topic_status_serde() {
+        let pending = TopicStatus::Pending;
+        let done = TopicStatus::Done;
+        let ps = serde_json::to_string(&pending).unwrap();
+        let ds = serde_json::to_string(&done).unwrap();
+        assert_eq!(ps, "\"pending\"");
+        assert_eq!(ds, "\"done\"");
+        let _pp: TopicStatus = serde_json::from_str(&ps).unwrap();
+        let _dp: TopicStatus = serde_json::from_str(&ds).unwrap();
+    }
+
+    #[test]
+    fn topic_struct_round_trips() {
+        let t = Topic {
+            id: "t1".into(),
+            parent_id: None,
+            title: "Test".into(),
+            ord: 1.0,
+            status: TopicStatus::Pending,
+            created_at: 12345,
+        };
+        let s = serde_json::to_string(&t).unwrap();
+        assert!(s.contains("\"id\":\"t1\""));
+        assert!(s.contains("\"status\":\"pending\""));
+        let _back: Topic = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn topic_tree_updated_round_trips() {
+        let msg = ServerMsg::TopicTreeUpdated {
+            v: 1,
+            ts: 100,
+            seq: 5,
+            topics: vec![Topic {
+                id: "t1".into(),
+                parent_id: None,
+                title: "Test".into(),
+                ord: 1.0,
+                status: TopicStatus::Pending,
+                created_at: 100,
+            }],
+            active_topic_id: Some("t1".into()),
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"TopicTreeUpdated\""));
+        assert!(s.contains("\"activeTopicId\":\"t1\""));
+        let _back: ServerMsg = serde_json::from_str(&s).unwrap();
     }
 }

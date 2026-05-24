@@ -42,10 +42,7 @@ pub struct CreateRoomResp {
 
 const DEFAULT_TITLE: &str = "Untitled";
 
-async fn create_room(
-    State(state): State<AppState>,
-    body: Option<Json<CreateRoomReq>>,
-) -> Response {
+async fn create_room(State(state): State<AppState>, body: Option<Json<CreateRoomReq>>) -> Response {
     let req = body.map(|Json(r)| r).unwrap_or_default();
     let title = req
         .title
