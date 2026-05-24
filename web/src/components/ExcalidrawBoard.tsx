@@ -1,5 +1,5 @@
-import { useCallback, useRef, useEffect } from "react";
-import { Excalidraw, type ExcalidrawImperativeAPI } from "@excalidraw/excalidraw";
+import { useCallback, useRef } from "react";
+import { Excalidraw } from "@excalidraw/excalidraw";
 import type { ExcalidrawBoard as ExcalidrawBoardType } from "../ws/types";
 import { sendWsMsg } from "../ws/manager";
 import { CursorLayer } from "./CursorLayer";
@@ -15,20 +15,8 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
   const versionRef = useRef<number>(board.sceneVersion ?? 0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const excalidrawRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
 
-  useEffect(() => {
-    if (board.sceneVersion > versionRef.current && excalidrawRef.current) {
-      excalidrawRef.current.updateScene({
-        elements: board.elements as any,
-        appState: board.appState as any,
-      });
-      versionRef.current = board.sceneVersion;
-    }
-  }, [board.sceneVersion, board.elements, board.appState]);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleChange = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (elements: readonly any[], appState: any) => {
@@ -77,7 +65,6 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           appState: { ...(board.appState as any), theme: resolvedTheme },
         }}
-        excalidrawRef={excalidrawRef}
       />
       <CursorLayer
         boardId={board.id}

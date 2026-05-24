@@ -23,7 +23,9 @@ export async function createRoom(req: CreateRoomRequest = {}): Promise<CreatedRo
     try {
       const err = await res.json();
       if (err.error) msg = err.error;
-    } catch {}
+    } catch {
+      // ignore parse error
+    }
     throw new Error(msg);
   }
   const body = (await res.json()) as Partial<CreatedRoom>;

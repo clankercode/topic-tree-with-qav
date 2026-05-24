@@ -13,7 +13,7 @@ interface ClickPingLayerProps {
   containerRef: React.RefObject<HTMLDivElement | null>;
 }
 
-export function ClickPingLayer({ boardId, containerRef: _containerRef }: ClickPingLayerProps) {
+export function ClickPingLayer({ boardId }: ClickPingLayerProps) {
   const [pings, setPings] = useState<ClickPing[]>([]);
   const pingsRef = useRef(pings);
   pingsRef.current = pings;

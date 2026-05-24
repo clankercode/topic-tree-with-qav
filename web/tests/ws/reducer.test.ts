@@ -295,7 +295,7 @@ describe("ws reducer", () => {
     const s = useSessionStore.getState();
     const board = s.boards.find((b) => b.id === "b1") as import("../../src/ws/types").ExcalidrawBoard;
     expect(board.sceneVersion).toBe(2);
-    expect((board as any).elements).toEqual([{ id: "el1" }]);
+    expect((board as ExcalidrawBoard).elements).toEqual([{ id: "el1" }]);
   });
 
   it("ExcalidrawSceneReset replaces scene entirely", () => {
