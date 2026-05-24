@@ -59,11 +59,29 @@ fi
 
 # Volume — `railway volume add` is the current verb; fall back to a printed note.
 if railway volume --help 2>&1 | grep -q 'add'; then
-  railway volume add --name "$VOLUME_NAME" --mount-path "$VOLUME_MOUNT" 2>/dev/null \
-    || echo "[railway-init] volume may already exist — continuing"
+  if ! railway volume add --mount-path "$VOLUME_MOUNT" 2>/tmp/railway-volume-add.err; then
+    if railway volume list --json 2>/dev/null \
+      | python3 -c 'import json,os,sys
+target = os.environ["VOLUME_MOUNT"]
+data = json.load(sys.stdin)
+volumes = data if isinstance(data, list) else data.get("volumes", [])
+for volume in volumes:
+    mount = volume.get("mountPath") or volume.get("mount_path") or volume.get("mount")
+    if mount == target:
+        sys.exit(0)
+sys.exit(1)
+' 2>/dev/null; then
+      echo "[railway-init] volume at $VOLUME_MOUNT already exists — continuing"
+    else
+      echo "[railway-init] failed to create required volume at $VOLUME_MOUNT:" >&2
+      cat /tmp/railway-volume-add.err >&2
+      exit 1
+    fi
+  fi
 else
   echo "[railway-init] this railway CLI version does not expose \`volume add\`; create the volume in the Railway dashboard:"
   echo "  Name: $VOLUME_NAME  Mount: $VOLUME_MOUNT  Size: 1GB"
+  exit 1
 fi
 
 # Env vars — `railway variables --set K=V` is idempotent.
