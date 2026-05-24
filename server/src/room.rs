@@ -118,6 +118,10 @@ pub enum ExcalidrawUpdateOutcome {
 struct RoomInner {
     seq: u64,
     presence: BTreeMap<GuestId, PresenceEntry>,
+    /// Guest ids the host has kicked since the room booted. Authoritative
+    /// in-memory copy that takes precedence over the (fire-and-forget)
+    /// moderation DB write, so a fast reconnect cannot race the kick.
+    kicked_guests: HashSet<GuestId>,
     topics: BTreeMap<TopicId, Topic>,
     active_topic_id: Option<TopicId>,
     questions: BTreeMap<QuestionId, Question>,
@@ -140,6 +144,7 @@ impl Room {
             inner: Mutex::new(RoomInner {
                 seq: 0,
                 presence: BTreeMap::new(),
+                kicked_guests: HashSet::new(),
                 topics: BTreeMap::new(),
                 active_topic_id: None,
                 questions: BTreeMap::new(),
@@ -253,11 +258,20 @@ impl Room {
     /// Removes a guest from presence (for kick). Returns client_ids that were removed.
     pub fn kick_guest(&self, guest_id: &str) -> Vec<ClientId> {
         let mut g = self.inner.lock().expect("room inner");
+        g.kicked_guests.insert(guest_id.to_string());
         if let Some(p) = g.presence.remove(guest_id) {
             p.client_ids
         } else {
             vec![]
         }
+    }
+
+    /// True iff the host has kicked this guest in the current process
+    /// lifetime. Used as defense-in-depth alongside the moderation DB
+    /// row so a fast reconnect cannot race the persisted kick.
+    pub fn is_kicked(&self, guest_id: &str) -> bool {
+        let g = self.inner.lock().expect("room inner");
+        g.kicked_guests.contains(guest_id)
     }
 
     pub fn guests(&self) -> Vec<Guest> {
@@ -1873,6 +1887,16 @@ mod tests {
     fn kick_guest_nonexistent_returns_empty() {
         let r = Room::new("R".into(), "T".into(), 0);
         assert!(r.kick_guest("nonexistent").is_empty());
+    }
+
+    #[test]
+    fn kick_guest_remembers_kicked_state_for_reconnect_race() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_client("g1".into(), "c1".into(), "Alice".into(), 100, false);
+        assert!(!r.is_kicked("g1"));
+        r.kick_guest("g1");
+        assert!(r.is_kicked("g1"));
+        assert!(!r.is_kicked("g2"));
     }
 
     #[test]

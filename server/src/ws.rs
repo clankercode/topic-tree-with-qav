@@ -335,7 +335,12 @@ async fn run_connection(
 
     // ── 4. Check moderation: kicked guests are rejected at Hello. ──
     if role == Role::Guest {
-        let kicked: bool = {
+        let kicked_in_memory = state
+            .rooms
+            .get(&rid)
+            .map(|r| r.is_kicked(&guest_id))
+            .unwrap_or(false);
+        let kicked_in_db: bool = {
             let db = state.db.clone();
             let rid = rid.clone();
             let gid = guest_id.clone();
@@ -364,11 +369,13 @@ async fn run_connection(
                 Err(e) => return Err(ConnError::Io(e.to_string())),
             }
         };
+        let kicked = kicked_in_memory || kicked_in_db;
         if kicked {
             let kick_notice = ServerMsg::KickNotice {
                 v: PROTOCOL_VERSION,
                 ts: now_ms(),
                 seq: 0,
+                guest_id: guest_id.clone(),
             };
             let _ = send(&mut sink, &kick_notice).await;
             let _ = send(
@@ -542,12 +549,19 @@ async fn main_loop(
             out = rx.recv() => {
                 match out {
                     Ok(msg) => {
+                        let kick_me = matches!(
+                            &msg,
+                            ServerMsg::KickNotice { guest_id: target, .. } if target == guest_id
+                        );
                         if let Err(e) = send(sink, &msg).await {
                             return Err(ConnError::Io(e));
                         }
                         {
                             let m = metrics.read().await;
                             m.ws_messages_sent.inc();
+                        }
+                        if kick_me {
+                            return Ok(());
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
@@ -1204,6 +1218,14 @@ async fn handle_text(
                 }
             });
             room.kick_guest(&target_guest_id);
+            let seq = room.next_seq();
+            let kick_notice = ServerMsg::KickNotice {
+                v: PROTOCOL_VERSION,
+                ts: now_ms(),
+                seq,
+                guest_id: target_guest_id.clone(),
+            };
+            let _ = room.broadcast.send(kick_notice);
             broadcast_presence(room);
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {

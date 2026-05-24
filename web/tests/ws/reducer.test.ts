@@ -521,7 +521,7 @@ describe("ws reducer", () => {
     expect(s.hands).toHaveLength(2);
   });
 
-  it("KickNotice sets kicked flag", () => {
+  it("KickNotice sets kicked flag when guestId matches the local guest", () => {
     applyServerMessage(welcome(1n));
     expect(useSessionStore.getState().kicked).toBe(false);
     applyServerMessage({
@@ -529,8 +529,21 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "KickNotice",
+      guestId: "g1",
     });
     expect(useSessionStore.getState().kicked).toBe(true);
+  });
+
+  it("KickNotice for a different guest is ignored", () => {
+    applyServerMessage(welcome(1n));
+    applyServerMessage({
+      v: 1,
+      ts: 0n,
+      seq: 2n,
+      type: "KickNotice",
+      guestId: "someone-else",
+    });
+    expect(useSessionStore.getState().kicked).toBe(false);
   });
 
   it("unknown server message types still advance lastSeq", () => {

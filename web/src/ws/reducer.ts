@@ -146,6 +146,8 @@ export function applyServerMessage(msg: ServerMsg): void {
       return;
     }
     case "KickNotice": {
+      const m = msg as Extract<ServerMsg, { type: "KickNotice" }>;
+      if (store.me?.guestId !== m.guestId) return;
       toastStore.addToast("You have been removed from this room.", "error");
       store.setKicked();
       return;

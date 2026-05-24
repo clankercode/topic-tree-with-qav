@@ -615,6 +615,9 @@ pub enum ServerMsg {
         v: u8,
         ts: i64,
         seq: u64,
+        /// Target guest id. Clients ignore this notice unless it
+        /// matches their own guest id.
+        guest_id: String,
     },
     VoteUpdated {
         v: u8,
