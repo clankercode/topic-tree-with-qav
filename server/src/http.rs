@@ -1,4 +1,4 @@
-//! HTTP surface: health endpoint, reserved API + WebSocket paths, and the
+//! HTTP surface: health endpoint, API routes, WebSocket upgrade, and the
 //! SPA static-asset fallback served from the embedded `web/dist/` bundle.
 
 use axum::{
@@ -11,29 +11,27 @@ use axum::{
 };
 use rust_embed::RustEmbed;
 
+use crate::api;
+use crate::state::AppState;
+use crate::ws::ws_handler;
+
 #[derive(RustEmbed)]
 #[folder = "$CARGO_MANIFEST_DIR/../web/dist/"]
 struct WebAssets;
 
-pub fn router() -> Router {
+pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
-        .route("/ws", any(ws_placeholder))
+        .route("/ws", any(ws_handler))
+        .merge(api::router())
         .route("/api/*rest", any(api_placeholder))
         .route("/", get(serve_index))
         .route("/*path", get(serve_asset))
+        .with_state(state)
 }
 
 async fn healthz() -> impl IntoResponse {
     (StatusCode::OK, "ok")
-}
-
-async fn ws_placeholder() -> impl IntoResponse {
-    // Real upgrade handler lands in Phase 1.
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        "ws upgrade not implemented yet",
-    )
 }
 
 async fn api_placeholder(uri: Uri) -> impl IntoResponse {
@@ -51,8 +49,6 @@ async fn serve_asset(Path(path): Path<String>) -> Response {
     if let Some(resp) = try_asset(&path) {
         return resp;
     }
-    // SPA fallback: any unknown GET path returns index.html so the React
-    // router can take over client-side.
     asset_or_fallback("index.html")
 }
 
@@ -73,7 +69,6 @@ fn asset_or_fallback(name: &str) -> Response {
     if let Some(resp) = try_asset(name) {
         return resp;
     }
-    // No frontend bundle embedded yet (dev mode before `pnpm -C web build`).
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
