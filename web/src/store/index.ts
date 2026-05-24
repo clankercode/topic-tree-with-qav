@@ -29,6 +29,7 @@ export interface SessionState {
   lastSeq: bigint | null;
   pendingOps: Map<string, PendingOp>;
   hands: RaisedHand[];
+  kicked: boolean;
   applyWelcome(snapshot: RoomSnapshot, seq: bigint): void;
   applyPresence(guests: Guest[], seq: bigint): void;
   applyTopicTree(topics: Topic[], activeTopicId: string | null, seq: bigint): void;
@@ -50,9 +51,9 @@ export interface SessionState {
   applyPenCleared(boardId: string): void;
   applyPenUndone(boardId: string, removedStrokeId: string | null, removedTextId: string | null): void;
   applyHandsUpdated(hands: RaisedHand[], seq: bigint): void;
-  applyQuestionPromotedToTopic(questionId: string, topic: Topic, seq: bigint): void;
   setLastSeq(seq: bigint): void;
   reset(): void;
+  setKicked(): void;
   optimisticAddTopic(tempId: string, parentId: string | null, title: string, afterId: string | null): string;
   optimisticRenameTopic(topicId: string, title: string): void;
   optimisticMoveTopic(topicId: string, newParentId: string | null, afterId: string | null): void;
@@ -76,6 +77,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   lastSeq: null,
   pendingOps: new Map(),
   hands: [],
+  kicked: false,
   applyWelcome(snapshot, seq) {
     set({
       room: snapshot.room,
@@ -91,7 +93,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       myVotes: new Set(snapshot.myVotes),
       boards: snapshot.boards as FatBoard[],
       focusedBoardId: snapshot.focusedBoardId,
-      hands: snapshot.hands,
+      hands: snapshot.hands as RaisedHand[],
       lastSeq: seq,
       pendingOps: new Map(),
     });
@@ -315,13 +317,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   applyHandsUpdated(hands, seq) {
     set({ hands, lastSeq: seq });
   },
-  applyQuestionPromotedToTopic(questionId, topic, seq) {
-    set((state) => ({
-      questions: state.questions.filter((q) => q.id !== questionId),
-      topics: [...state.topics, topic],
-      lastSeq: seq,
-    }));
-  },
   setLastSeq(seq) {
     set({ lastSeq: seq });
   },
@@ -341,7 +336,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       lastSeq: null,
       pendingOps: new Map(),
       hands: [],
+      kicked: false,
     });
+  },
+  setKicked() {
+    set({ kicked: true });
   },
   optimisticAddTopic(tempId, parentId, title, afterId) {
     set((state) => {

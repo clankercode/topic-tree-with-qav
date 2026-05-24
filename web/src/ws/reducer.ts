@@ -1,8 +1,10 @@
 import { useSessionStore } from "../store";
+import { useToastStore } from "../store/toast";
 import type { ServerMsg } from "./types";
 
 export function applyServerMessage(msg: ServerMsg): void {
   const store = useSessionStore.getState();
+  const toastStore = useToastStore.getState();
   switch (msg.type) {
     case "Welcome":
       store.applyWelcome(
@@ -113,7 +115,22 @@ export function applyServerMessage(msg: ServerMsg): void {
     }
     case "QuestionPromotedToTopic": {
       const m = msg as Extract<ServerMsg, { type: "QuestionPromotedToTopic" }>;
-      store.applyQuestionPromotedToTopic(m.questionId, m.topic, msg.seq);
+      store.applyQuestionDeleted(m.questionId, msg.seq);
+      store.applyTopicTree([...store.topics, m.topic], store.activeTopicId, msg.seq);
+      return;
+    }
+    case "KickNotice": {
+      store.setKicked();
+      return;
+    }
+    case "Error": {
+      const m = msg as Extract<ServerMsg, { type: "Error" }>;
+      if (m.code === "muted") {
+        toastStore.addToast(m.message, "error");
+      } else if (m.code === "unauthorized" && m.message.includes("removed")) {
+        store.setKicked();
+      }
+      store.setLastSeq(msg.seq);
       return;
     }
     default:

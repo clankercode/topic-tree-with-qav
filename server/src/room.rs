@@ -132,6 +132,7 @@ impl Room {
         client_id: ClientId,
         display_name: String,
         joined_at: i64,
+        muted: bool,
     ) -> bool {
         let mut g = self.inner.lock().expect("room inner");
         if let Some(p) = g.presence.get_mut(&guest_id) {
@@ -150,7 +151,7 @@ impl Room {
             PresenceEntry {
                 guest_id,
                 display_name,
-                muted: false,
+                muted,
                 joined_at,
                 client_ids: vec![client_id],
             },
@@ -185,6 +186,30 @@ impl Room {
         }
         p.display_name = name;
         true
+    }
+
+    pub fn set_muted(&self, guest_id: &str, muted: bool) -> bool {
+        let mut g = self.inner.lock().expect("room inner");
+        let Some(p) = g.presence.get_mut(guest_id) else {
+            return false;
+        };
+        p.muted = muted;
+        true
+    }
+
+    pub fn is_muted(&self, guest_id: &str) -> bool {
+        let g = self.inner.lock().expect("room inner");
+        g.presence.get(guest_id).map(|p| p.muted).unwrap_or(false)
+    }
+
+    /// Removes a guest from presence (for kick). Returns client_ids that were removed.
+    pub fn kick_guest(&self, guest_id: &str) -> Vec<ClientId> {
+        let mut g = self.inner.lock().expect("room inner");
+        if let Some(p) = g.presence.remove(guest_id) {
+            p.client_ids
+        } else {
+            vec![]
+        }
     }
 
     pub fn guests(&self) -> Vec<Guest> {
@@ -670,8 +695,8 @@ mod tests {
     #[test]
     fn add_remove_client_drives_presence_correctly() {
         let r = Room::new("R".into(), "T".into(), 0);
-        assert!(r.add_client("g1".into(), "c1".into(), "Alice".into(), 100));
-        assert!(!r.add_client("g1".into(), "c2".into(), "Alice".into(), 100));
+        assert!(r.add_client("g1".into(), "c1".into(), "Alice".into(), 100, false));
+        assert!(!r.add_client("g1".into(), "c2".into(), "Alice".into(), 100, false));
         assert_eq!(r.presence().len(), 1);
         assert_eq!(r.presence()[0].client_ids.len(), 2);
 
@@ -684,7 +709,7 @@ mod tests {
     #[test]
     fn set_display_name_returns_changed_flag() {
         let r = Room::new("R".into(), "T".into(), 0);
-        r.add_client("g1".into(), "c1".into(), "Alice".into(), 0);
+        r.add_client("g1".into(), "c1".into(), "Alice".into(), 0, false);
         assert!(!r.set_display_name("g1", "Alice".into()));
         assert!(r.set_display_name("g1", "Alicia".into()));
         assert_eq!(r.guests()[0].display_name, "Alicia");
@@ -693,7 +718,7 @@ mod tests {
     #[test]
     fn snapshot_is_empty_for_m1_aside_from_presence() {
         let r = Room::new("ROOMID000001".into(), "T".into(), 7);
-        r.add_client("g1".into(), "c1".into(), "Alice".into(), 7);
+        r.add_client("g1".into(), "c1".into(), "Alice".into(), 7, false);
         let snap = r.snapshot_for(you("c1", "g1", Role::Guest), "g1");
         assert_eq!(snap.room.id, "ROOMID000001");
         assert_eq!(snap.guests.len(), 1);

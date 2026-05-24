@@ -329,6 +329,19 @@ pub enum ClientMsg {
         id: Option<String>,
         question_id: String,
     },
+    KickGuest {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        guest_id: String,
+    },
+    MuteGuest {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        guest_id: String,
+        muted: bool,
+    },
     CreateBoard {
         v: u8,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -480,6 +493,10 @@ pub enum ServerMsg {
         seq: u64,
         question_id: String,
     },
+    KickNotice {
+        v: u8,
+        ts: i64,
+    },
     VoteUpdated {
         v: u8,
         ts: i64,
@@ -557,6 +574,7 @@ pub mod error_codes {
     pub const PROTOCOL_VIOLATION: &str = "protocol_violation";
     pub const FORBIDDEN: &str = "forbidden";
     pub const RATE_LIMIT: &str = "rate_limit";
+    pub const MUTED: &str = "muted";
 }
 
 #[cfg(all(test, feature = "ts-gen"))]

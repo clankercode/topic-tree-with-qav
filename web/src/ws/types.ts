@@ -142,6 +142,7 @@ export type ServerMsg =
   | (Envelope & { type: "Clicked"; boardId: string; clientId: string; guestId: string; displayName: string; x: number; y: number })
   | (Envelope & { type: "HandsUpdated"; hands: RaisedHand[] })
   | (Envelope & { type: "QuestionPromotedToTopic"; questionId: string; topic: Topic })
+  | (Envelope & { type: "KickNotice" })
   | (Envelope & { type: string; [k: string]: unknown });
 
 export interface ClientHello {
@@ -157,6 +158,8 @@ export type ClientMsg =
   | ClientHello
   | { v: 1; type: "Pong" }
   | { v: 1; type: "GetSnapshot"; since?: number }
+  | { v: 1; id?: string; type: "KickGuest"; guestId: string }
+  | { v: 1; id?: string; type: "MuteGuest"; guestId: string; muted: boolean }
   | { v: 1; id?: string; type: "RaiseHand"; topic: string }
   | { v: 1; id?: string; type: "LowerHand" }
   | { v: 1; id?: string; type: "CallOnHand"; guestId: string }

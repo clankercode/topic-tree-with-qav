@@ -5,6 +5,7 @@ import { AdminBanner } from "../components/AdminBanner";
 import { BoardPanel } from "../components/BoardPanel";
 import { HandsQueue } from "../components/HandsQueue";
 import { PresenceIndicator } from "../components/PresenceIndicator";
+import { PresenceMenu } from "../components/PresenceMenu";
 import { QAPanel } from "../components/QAPanel";
 import { TopicTree } from "../components/TopicTree";
 import { getRoom, type RoomRecord } from "../lib/idb";
@@ -147,7 +148,10 @@ export function HostSession() {
             </div>
             <ActiveTopicBadge />
           </div>
-          <PresenceIndicator />
+          <div className="flex items-center gap-4">
+            <PresenceMenu />
+            <PresenceIndicator />
+          </div>
         </header>
         <div className="rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-3">
           <HandsQueue />
