@@ -837,6 +837,43 @@ impl Room {
                         obj.insert("elements".to_string(), scene.elements.clone());
                         obj.insert("appState".to_string(), scene.app_state.clone());
                     }
+                    if b.kind == BoardKind::Pen {
+                        if let Some(pen_state) = g.pen_boards.get(&b.id) {
+                            let strokes: Vec<serde_json::Value> = pen_state
+                                .strokes
+                                .iter()
+                                .map(|s| {
+                                    serde_json::json!({
+                                        "id": s.id,
+                                        "color": s.color,
+                                        "size": s.size,
+                                        "points": s.points,
+                                        "createdAt": s.created_at,
+                                        "ord": s.ord,
+                                    })
+                                })
+                                .collect();
+                            let texts: Vec<serde_json::Value> = pen_state
+                                .texts
+                                .iter()
+                                .map(|t| {
+                                    serde_json::json!({
+                                        "id": t.id,
+                                        "x": t.x,
+                                        "y": t.y,
+                                        "text": t.text,
+                                        "fontSize": t.font_size,
+                                        "color": t.color,
+                                        "updatedAt": t.updated_at,
+                                    })
+                                })
+                                .collect();
+                            obj.insert(
+                                "content".to_string(),
+                                serde_json::json!({ "strokes": strokes, "texts": texts }),
+                            );
+                        }
+                    }
                     serde_json::Value::Object(obj)
                 })
                 .collect();

@@ -10,7 +10,7 @@ interface Props {
 }
 
 export function ExcalidrawBoard({ board, isHost }: Props) {
-  const versionRef = useRef<number>(board.sceneVersion);
+  const versionRef = useRef<number>(board.sceneVersion ?? 0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
