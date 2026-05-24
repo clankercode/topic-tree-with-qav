@@ -1,14 +1,30 @@
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { About } from "./routes/About";
+import { GuestSession } from "./routes/GuestSession";
+import { Landing } from "./routes/Landing";
+import { RoomDispatch } from "./routes/RoomDispatch";
+import { RoomEntry } from "./routes/RoomEntry";
+import { RoomsDashboard } from "./routes/RoomsDashboard";
+import { HostSession } from "./routes/HostSession";
+
+export function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/about" element={<About />} />
+      <Route path="/rooms" element={<RoomsDashboard />} />
+      <Route path="/r/:roomId" element={<RoomDispatch />} />
+      <Route path="/r/:roomId/join" element={<RoomEntry />} />
+      <Route path="/r/:roomId/host" element={<HostSession />} />
+      <Route path="/r/:roomId/guest" element={<GuestSession />} />
+    </Routes>
+  );
+}
+
 export function App() {
   return (
-    <main className="min-h-full flex items-center justify-center p-8">
-      <div className="max-w-xl text-center space-y-4">
-        <h1 className="text-4xl font-semibold tracking-tight">
-          topic-tree-with-qav
-        </h1>
-        <p className="text-[rgb(var(--muted))]">
-          Host-led, audience-interactive sessions. Bootstrap scaffold.
-        </p>
-      </div>
-    </main>
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
   );
 }
