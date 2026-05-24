@@ -48,9 +48,10 @@ pointerup
 
 ### Undo / Clear
 
-- `PenUndo` removes the last *stroke or text* (per board, monotonic `ord`).
-- `PenClear` wipes both strokes and texts for the board (with confirm dialog).
-- Undo history is server-side authoritative; the last 50 actions per board are kept in-memory for fast undo; SQLite holds the full record but undo doesn't undelete past 50 (call it out in tooltip).
+- All pen-board mutations (`stroke begin`, `text upsert`, `text delete`) write a row into a unified **`pen_actions`** table with monotonic `ord` per board. This gives one log to undo from regardless of action kind.
+- `PenUndo` is **server-authoritative**: server pops the highest-`ord` action for that board, undoes it (deletes stroke / restores prior text / removes text), broadcasts `PenUndone {boardId, undoneActionId, kind, payload}` so every client knows exactly what disappeared.
+- The undo log is bounded to **50 entries per board** in-memory (rolling window); older rows still in SQLite but not undoable. The host's undo button tooltip notes "undo is limited to the last 50 actions on this board".
+- `PenClear` is its own intent and broadcasts `PenCleared` — it is **not** itself undoable (confirm dialog enforces intent). Strokes + texts are deleted; `pen_actions` log retains a sentinel `Clear` row for auditing but undo will not roll past it.
 
 ## 2. Excalidraw board
 
@@ -117,9 +118,15 @@ Excalidraw exposes a collaborator pointer API:
 
 ### Coordinate space
 
-- Pen board: canvas-internal coords (we set canvas size to a fixed virtual 4096×2304; CSS-scale to viewport, letterboxed; this keeps strokes resolution-independent).
-- Excalidraw: its own scene coords. Cursor pings on Excalidraw are sent in scene coords so they remain anchored to scene content during pan/zoom.
+- **Pen board**: fixed virtual canvas of 4096×2304 logical units. CSS-scale to viewport, letterboxed.
+  - Pointer→canvas mapping: `cx = (event.offsetX / canvas.clientWidth)  * 4096; cy = (event.offsetY / canvas.clientHeight) * 2304`.
+  - On window resize, canvas client size changes but the internal coordinate space stays 4096×2304, so all replays are resolution-independent.
+- **Excalidraw**: its own scene coords. Cursor pings on Excalidraw are sent in scene coords (use `excalidrawAPI.getSceneCoordsFromViewport(clientX, clientY)`) so they remain anchored to scene content during pan/zoom.
 - The protocol uses generic `{x, y}` floats; the board component knows how to interpret them per kind.
+
+### Anti-drift snapshot (Excalidraw)
+
+- Every 60 seconds (server-driven), if the Excalidraw scene's `scene_version` has changed since the last reset, the server broadcasts `ExcalidrawSceneReset` with the canonical state. Clients call `excalidrawAPI.updateScene({elements, appState})` unconditionally, healing any guest that silently drifted.
 
 ### Performance budget
 

@@ -31,6 +31,8 @@ A web app for **host-led, audience-interactive sessions**.
 | Hosting | **Railway**, single service, Dockerfile multi-stage build, persistent volume mounted at `/data` |
 | Test stack | Vitest (frontend unit), `cargo test` + axum-test (backend), Playwright (e2e + visual regression) |
 | Review loops | **Two parallel tracks per phase.** Track A (visual): opus-4.7 subagent + `gpt-pro-run-review-dc` (ChatGPT Pro decisive-criticism). Track B (code): `ccc-review-cx` (Codex) + `kimi --print` (Moonshot). Synthesized punch list handed to an opus-4.7 `review-and-fix` subagent. |
+| Docs site | `docs/` rendered via Vitepress, deployed to GitHub Pages via Actions; screenshots harvested from a dedicated Playwright suite |
+| Repo metadata | `gh repo edit` script sets description, homepage URL, topics, Pages source; runs at Phase 9.9 |
 | Repo entrypoint | `justfile` + `scripts/` for anything >5 lines |
 
 ## 3. Document map
@@ -70,6 +72,6 @@ A web app for **host-led, audience-interactive sessions**.
 - **Whiteboards**: host can create either a *pen board* (custom canvas, `perfect-freehand` strokes + text layer) or an *Excalidraw board* (full Excalidraw widget, our Rust server relays scene operations and pointer updates between clients — no Node sidecar). Default permission: only host edits; guests view + click-ping + share cursor positions.
 - **Testing**: TDD throughout, three layers (unit, integration, e2e); Playwright drives multi-client scenarios; `toHaveScreenshot` for visual regression. Every phase ends with a parallel **multi-agent review** with two tracks: Track A visual (opus-4.7 subagent + ChatGPT-Pro decisive-criticism via `gpt-pro-run-review-dc`) and Track B code (`/ccc-review-cx` Codex + Moonshot Kimi via `kimi --print --yolo --thinking`). Merged punch list goes to an opus-4.7 subagent running `review-and-fix` until clean.
 - **Workflow per phase**: brainstorm if anything unknown → write tests → implement (subagent-driven, dispatched in parallel where independent) → e2e → multi-agent review (Tracks A + B in parallel) → opus-4.7 `review-and-fix` loop on merged punch list → commit → `postcommit-status-and-continue` decides whether to continue.
-- **Deployment**: Dockerfile multi-stage (Node build → Rust build → distroless runtime); Railway with `/data` volume for SQLite; GitHub Actions runs tests on every PR; main auto-deploys.
+- **Deployment**: Dockerfile multi-stage (Node build → Rust build → debian-slim runtime, *not* distroless-nonroot because Railway volumes mount root-owned and v1 runs as root in-container); Railway with `/data` volume for SQLite; GitHub Actions runs tests on every PR; `main` auto-deploys. A separate Pages workflow publishes `docs/` (Vitepress) to `https://clankercode.github.io/topic-tree-with-qav/`, with screenshots refreshed by a dedicated e2e suite on each deploy. A final repo-metadata script applies description / homepage / topics via `gh`.
 - **Repo norms**: `justfile` is the index — every repeated workflow has a `just <name>` entry; logic >5 lines lives in `scripts/`.
 - **Hidden risks called out** in `risks.md`: Excalidraw relay correctness, screenshot flakiness in Playwright, ws backpressure under high stroke rate, Railway volume single-instance constraint, adminToken in URL footgun on first share.

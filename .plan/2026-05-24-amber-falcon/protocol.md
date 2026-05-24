@@ -6,11 +6,39 @@ JSON over WS. Each frame is one envelope. Versioned by `v`.
 
 ```ts
 type ClientMsg = { v: 1; id?: string; type: string; ...payload };
-type ServerMsg = { v: 1; type: string; ts: number; ...payload };
+type ServerMsg = { v: 1; type: string; ts: number; seq: number; ...payload };
 ```
 
 - `id` is an optional client-generated correlation id; server echoes in the ack/error response.
 - `ts` (ms epoch) is set by server on outbound messages.
+- `seq` (u64) is a per-room monotonic counter set by server. See *Sequence numbering + gap detection* below.
+
+## Type definitions
+
+All shapes below are defined as Rust `#[derive(Serialize, Deserialize, TS)]` structs in `server/src/proto.rs` and the TS types are generated via `ts-rs`. Camel-cased JSON (serde `rename_all = "camelCase"`) on the wire; snake_case in Rust.
+
+```rust
+struct Guest { guest_id: String; display_name: String; muted: bool; joined_at: i64 }
+struct Topic { id: String; parent_id: Option<String>; title: String; ord: f64; status: TopicStatus; created_at: i64 }
+enum   TopicStatus { Pending, Done }
+struct Question {
+  id: String; room_id: String;
+  author_guest_id: String;        // "" on outbound when anonymous
+  author_name: String;            // "Anonymous" on outbound when anonymous
+  anonymous: bool; text: String; answered: bool;
+  created_at: i64; vote_count: u32;
+}
+struct Board { id: String; kind: BoardKind; title: String; created_at: i64; ord: f64 }
+enum   BoardKind { Pen, Excalidraw }
+struct PenText { id: String; x: f64; y: f64; text: String; font_size: f64; color: String; updated_at: i64 }
+struct PenStrokeSummary { id: String; color: String; size: f64; points: Vec<[f32; 3]>; created_at: i64; ord: u32 }
+struct ExcalidrawScene { board_id: String; scene_version: u64; elements: JsonValue; app_state: JsonValue }
+struct RaisedHand { guest_id: String; display_name: String; topic: String; raised_at: i64 }
+struct Cursor { board_id: String; client_id: String; x: f64; y: f64; ts: i64 }
+struct Presence { guest_id: String; display_name: String; muted: bool; joined_at: i64; client_ids: Vec<String> }
+```
+
+Boards inside `RoomSnapshot.boards` are *fat*: a Pen board carries its `strokes` + `texts`, an Excalidraw board carries its `scene_version` + `elements` + `app_state`.
 
 ## Connection lifecycle
 
@@ -31,7 +59,7 @@ type ServerMsg = { v: 1; type: string; ts: number; ...payload };
 | `Hello` | `{role, guestId, displayName?, adminToken?}` | implicit |
 | `SetDisplayName` | `{name}` | guest self |
 | `SubmitQuestion` | `{text, anonymous}` | guest |
-| `VoteQuestion` | `{questionId, vote: 1\|-1\|0}` | guest |
+| `VoteQuestion` | `{questionId, vote: bool}` (true = upvote, false = retract) | guest |
 | `AddTopic` | `{parentId?, title, afterId?}` | admin |
 | `RenameTopic` | `{topicId, title}` | admin |
 | `MoveTopic` | `{topicId, newParentId?, afterId?}` | admin |
@@ -51,12 +79,12 @@ type ServerMsg = { v: 1; type: string; ts: number; ...payload };
 | `PenTextDelete` | `{boardId, textId}` | admin |
 | `PenClear` | `{boardId}` | admin |
 | `PenUndo` | `{boardId}` | admin |
-| `ExcalidrawUpdate` | `{boardId, sceneVersion, elements, appState?}` | admin |
+| `ExcalidrawUpdate` | `{boardId, sceneVersion, elements, appState}` | admin |
 | `Cursor` | `{boardId, x, y}` | any |
 | `Click` | `{boardId, x, y}` | any |
 | `KickGuest` | `{guestId}` | admin |
 | `MuteGuest` | `{guestId, muted:bool}` | admin |
-| `RaiseHand` | `{topic: string}` (1-10 words, server enforces ≤80 chars + word count) | guest |
+| `RaiseHand` | `{topic: string}` (1-10 words, server enforces ≤80 chars + word count via Unicode whitespace split) | guest |
 | `LowerHand` | `{}` | guest self |
 | `CallOnHand` | `{guestId}` | admin |
 | `DismissHand` | `{guestId}` | admin |
@@ -77,7 +105,7 @@ Each event includes only the delta unless noted.
 | `QuestionAdded` | `{question: Question}` |
 | `QuestionUpdated` | `{question: Question}` |
 | `QuestionDeleted` | `{questionId}` |
-| `VoteUpdated` | `{questionId, voteCount}` |
+| `VoteUpdated` | `{questionId, voteCount, voterGuestId}` (clients track their own vote: if `voterGuestId == myGuestId`, the action toggled my vote) |
 | `TopicTreeUpdated` | `{topics: Topic[], activeTopicId}` (full tree — small enough; simpler than diffs) |
 | `BoardCreated` | `{board: Board}` |
 | `BoardUpdated` | `{board: Board}` |
@@ -90,9 +118,10 @@ Each event includes only the delta unless noted.
 | `PenTextDeleted` | `{boardId, textId}` |
 | `PenCleared` | `{boardId}` |
 | `PenUndone` | `{boardId, removedStrokeId\|removedTextId}` |
-| `ExcalidrawDelta` | `{boardId, sceneVersion, elements}` |
-| `CursorMoved` | `{boardId, clientId, x, y}` |
-| `Clicked` | `{boardId, clientId, x, y}` |
+| `ExcalidrawDelta` | `{boardId, sceneVersion, elements, appState}` |
+| `ExcalidrawSceneReset` | `{boardId, sceneVersion, elements, appState}` (server-initiated periodic anti-drift snapshot; clients replace state wholesale) |
+| `CursorMoved` | `{boardId, clientId, guestId, displayName, x, y}` |
+| `Clicked` | `{boardId, clientId, guestId, displayName, x, y}` |
 | `KickNotice` | `{}` (sent to the kicked client just before close) |
 | `HandsUpdated` | `{hands: [{guestId, displayName, topic, raisedAt}]}` (replaces full queue; ephemeral, not persisted) |
 | `QuestionPromotedToTopic` | `{questionId, topic: Topic}` (clients remove question from Q&A list and insert topic into tree) |
@@ -108,16 +137,26 @@ type RoomSnapshot = {
   topics: Topic[];
   activeTopicId: string | null;
   questions: Question[];
-  boards: Board[];           // each board includes its full content
+  myVotes: string[];                 // questionIds I've voted on — drives "already voted" UI on reconnect
+  boards: Board[];                   // each board includes its full content (strokes/texts or scene)
   focusedBoardId: string | null;
+  hands: RaisedHand[];               // current raised-hand queue (ephemeral)
 };
 ```
 
 ## Auth rules
 
-- `adminToken` is verified server-side per message that requires admin. Token never leaves server-side validation logic.
-- A connection's role is locked at `Hello`; switching requires reconnect.
+- `adminToken` is verified **once during `Hello`** (one argon2id check). The result is cached on the connection's session state as `role = host | guest`. Subsequent admin messages are gated by the cached role — no per-message rehashing.
+- Role is immutable for the life of the connection. Switching requires reconnect with a different `Hello`.
+- Tampered intents (a `guest` connection sending an admin-only message) are dropped with `Error{code:"forbidden"}`.
 - Token leak mitigation: when the host opens the admin URL once, the client immediately strips `?admin=...` from the address bar (`history.replaceState`) and stores token in IndexedDB. Subsequent loads use the stored token.
+- **Role vocabulary**: the wire uses `"host"` and `"guest"` everywhere — ws `Hello.role`, server snapshot `you.role`, and IndexedDB `RoomRecord.role`. The credential itself is called `adminToken` because it's a credential, not a role label.
+
+## Sequence numbering + gap detection
+
+- Server attaches a monotonic per-room `seq: u64` to every `ServerMsg` (in addition to `ts`).
+- Clients track the last-seen `seq`. If a received `seq` is not exactly previous + 1, the client requests `GetSnapshot` to resync.
+- `Welcome` carries the current high-water `seq`; subsequent broadcasts increment from there.
 
 ## Rate limits (server-enforced, per-client)
 

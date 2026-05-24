@@ -10,7 +10,7 @@ A real-time host-audience interaction web app: topic tree, Q&A with voting, smoo
 - **Backend**: Rust + Axum on Tokio (multi-threaded runtime). `tokio-tungstenite` for ws. `rusqlite` (bundled) + `r2d2` + `refinery` for migrations. `tracing` for logs. Single binary, single process, multi-threaded.
 - **Storage**: SQLite (WAL) at `$DATABASE_PATH` (default `/data/app.db` in prod, `./dev.db` in dev). Single-writer, fine for single-host design.
 - **Realtime**: raw WebSockets, JSON envelopes. See `.plan/2026-05-24-amber-falcon/protocol.md` for every message.
-- **Identity**: host = random `adminToken` (argon2-hashed server-side) stored in browser IndexedDB. Guests = self-issued `guestId` (UUIDv4 in localStorage) + chosen display name.
+- **Identity**: host (role=`"host"` on the wire) holds a random `adminToken` (argon2-hashed server-side) stored in browser IndexedDB. Guests (role=`"guest"`) carry a self-issued `guestId` (UUIDv4 in localStorage) + chosen display name. Token is verified **once** at `Hello`; the resulting role is cached per connection.
 - **Hosting**: Railway (team `clankercode`, project `topic-tree-with-qav`), one service, one volume at `/data`.
 
 ## 2. Repo layout
@@ -104,8 +104,9 @@ See `.plan/2026-05-24-amber-falcon/agents-workflow.md` for prompt skeletons and 
 - **Single host per room** (single SQLite writer). Multi-host is explicitly out of scope.
 - **Single Railway instance** (volume = single-instance constraint). Out-of-scope to scale horizontally; documented upgrade path in `risks.md` R4.
 - **No voice/video**. Click pings + cursors + raise-hand are the only live presence affordances.
-- **No retention policy**. Rooms live until admin deletes them.
+- **No retention policy**. Rooms live forever until a host explicitly deletes their own room from the dashboard (`DeleteRoom` intent in v1.x — for v1 itself, rooms are not deletable; documented as a known gap).
 - **Anonymous Q is per-question, not per-session**. Presence still shows display name even when a user posts anonymously.
+- **No-auth limitations are accepted**: clearing localStorage can bypass vote dedup, mute, and kick. Documented in `risks.md` R16; defense-in-depth via per-IP rate limit only.
 
 ## 9. Defense-in-depth reminders
 

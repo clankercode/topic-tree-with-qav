@@ -30,13 +30,12 @@ CREATE INDEX idx_topics_room ON topics(room_id, parent_id, ord);
 CREATE TABLE questions (
   id           TEXT PRIMARY KEY,
   room_id      TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
-  author_guest_id TEXT NOT NULL,                   -- empty string if anonymous (still tracked server-side via session for moderation; not surfaced to clients)
-  author_name  TEXT NOT NULL,                      -- "Anonymous" if anonymous=true
+  author_guest_id TEXT NOT NULL,                   -- ALWAYS the real guest_id; blank only on outbound when anonymous=true
+  author_name  TEXT NOT NULL,                      -- the real submitted name; replaced with "Anonymous" on outbound when anonymous=true
   anonymous    INTEGER NOT NULL DEFAULT 0,
   text         TEXT NOT NULL,
   answered     INTEGER NOT NULL DEFAULT 0,
-  created_at   INTEGER NOT NULL,
-  topic_id     TEXT REFERENCES topics(id) ON DELETE SET NULL
+  created_at   INTEGER NOT NULL
 );
 CREATE INDEX idx_questions_room ON questions(room_id, created_at);
 
@@ -63,10 +62,9 @@ CREATE TABLE pen_strokes (
   color      TEXT NOT NULL,
   size       REAL NOT NULL,
   points_json TEXT NOT NULL,                       -- [[x,y,pressure],...]
-  created_at INTEGER NOT NULL,
-  ord        INTEGER NOT NULL                      -- monotonic per board for undo/replay order
+  created_at INTEGER NOT NULL
 );
-CREATE INDEX idx_strokes_board ON pen_strokes(board_id, ord);
+CREATE INDEX idx_strokes_board ON pen_strokes(board_id);
 
 CREATE TABLE pen_texts (
   id         TEXT PRIMARY KEY,
@@ -76,8 +74,21 @@ CREATE TABLE pen_texts (
   text       TEXT NOT NULL,
   font_size  REAL NOT NULL DEFAULT 16,
   color      TEXT NOT NULL DEFAULT '#000000',
+  created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+-- Unified action log per board for undo. Each mutation writes one row.
+CREATE TABLE pen_actions (
+  id         TEXT PRIMARY KEY,
+  board_id   TEXT NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+  ord        INTEGER NOT NULL,                     -- monotonic per board
+  kind       TEXT NOT NULL,                        -- "stroke_add" | "text_upsert" | "text_delete" | "clear"
+  target_id  TEXT,                                 -- the stroke_id or text_id this action affected
+  before_json TEXT,                                -- prior value for text_upsert/text_delete, NULL for stroke_add
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_pen_actions_board ON pen_actions(board_id, ord);
 
 CREATE TABLE excalidraw_scenes (
   board_id        TEXT PRIMARY KEY REFERENCES boards(id) ON DELETE CASCADE,
@@ -102,9 +113,11 @@ CREATE TABLE moderation (
 
 - **adminToken hashing**: never store raw tokens. Argon2id with 64MB memory cost is fine on Railway containers; cache-bypass is OK because admin actions are rare relative to ws traffic.
 - **Fractional indexing on `ord`**: lets us insert between two adjacent items by averaging their ords. Rebalance only when neighbors get within 2^-30 of each other.
-- **Anonymous questions**: server keeps the real `guest_id` for moderation (kick spammer even if they posted anonymously) but never sends it to other clients. The `Question` shape exposed via proto has the `guest_id` field omitted/blanked when `anonymous=true`.
+- **Anonymous questions**: server **always** persists the real `guest_id` and `display_name` so moderation works against anonymous posters. The `anonymous` flag controls *outbound* shaping only — server replaces `author_guest_id` with `""` and `author_name` with `"Anonymous"` on every `QuestionAdded`/`QuestionUpdated` payload when `anonymous=true`. The host's UI never sees the real id either (defense in depth — moderation still works because the host can mute/kick the guest via *presence*).
+- **No `questions.topic_id`**: we dropped free-form Q→topic linking in favor of `PromoteQuestionToTopic` (creates a new topic node, deletes the question).
 - **Snapshot generation**: on `Welcome` or `GetSnapshot`, server reads each table for the room with simple joins; total payload per typical room (~50 topics, ~200 questions, ~10 boards) is well under 500KB JSON. Don't optimize yet.
-- **Migrations**: `refinery` crate; migrations live in `server/migrations/`.
+- **Migrations**: `refinery` crate; migrations live in `server/migrations/`. Forward-only and additive (two-phase for column drops).
+- **Settings JSON**: `rooms.settings_json` is a flexible per-room key/value blob for v1.x growth (e.g. toggles for raise-hand on/off). v1 doesn't use it but the column is cheap; the schema doesn't force consumers to read it.
 
 ## 2. Client-side state (IndexedDB)
 
@@ -141,9 +154,18 @@ struct RoomState {
   focused_board_id: Option<BoardId>,
   cursors: HashMap<ClientId, Cursor>,      // not persisted
   presence: HashMap<GuestId, Presence>,
+  hands: BTreeMap<GuestId, RaisedHand>,    // ephemeral: cleared on disconnect, never persisted
   broadcast: broadcast::Sender<ServerMsg>,
   cmd_rx: mpsc::Receiver<RoomCmd>,
   db: DbHandle,
+  last_activity: Instant,                  // for reap-after-idle (default 10 min)
+}
+
+struct RaisedHand {
+  guest_id: GuestId,
+  display_name: String,
+  topic: String,                           // 1-10 words, server-validated
+  raised_at: Instant,
 }
 
 enum BoardState {
@@ -153,3 +175,9 @@ enum BoardState {
 ```
 
 Room state is *rehydrated from SQLite* on first connection after a restart. After that, the in-memory copy is authoritative and persists incrementally on every state-changing intent.
+
+### Read / write split
+
+- `AppState` holds a single `Pool<SqliteConnectionManager>` (size = `num_cpus`) used by **read-only handlers** (presence list queries, snapshot generation for `Welcome`).
+- **All writes** go through a single dedicated tokio task with an mpsc queue, owning *its own* SQLite connection. This keeps WAL writers single-threaded (SQLite's preferred shape) while letting reads scale.
+- For `:memory:` (test) mode the pool is forced to `max_size(1)` and the read pool + write task share that single connection, so tests see a coherent database.

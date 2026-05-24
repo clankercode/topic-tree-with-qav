@@ -4,12 +4,11 @@
 
 | Path | Purpose |
 |---|---|
-| `/` | Landing — "Create room" CTA; shows recently created/joined rooms from IndexedDB |
-| `/r/new` | POST create flow (server-side or via `/api/rooms` then redirect) |
+| `/` | Landing — "Create room" CTA (`POST /api/rooms`); shows recently created/joined rooms from IndexedDB |
 | `/r/:roomId` | Guest entry — name prompt then session view |
-| `/r/:roomId/host` | Host view (gated by IndexedDB-stored adminToken; redirects to claim flow if missing) |
-| `/r/:roomId?admin=<token>` | First-time admin claim — strips query, saves to IndexedDB, redirects to `/r/:roomId/host` |
-| `/rooms` | Dashboard of all rooms this device knows about (admin + joined-as-guest) |
+| `/r/:roomId/host` | Host view (gated by IndexedDB-stored `adminToken`; redirects to landing if missing) |
+| `/r/:roomId?admin=<token>` | First-time host claim — strips query within 50ms, saves token to IndexedDB, redirects to `/r/:roomId/host` |
+| `/rooms` | Dashboard of all rooms this device knows about (host + joined-as-guest) |
 | `/about` | (stub) |
 
 ## 2. Session view layout
@@ -35,19 +34,63 @@
 - On narrow screens (<900px): a tabbed view with bottom segmented control (Tree / Board / Q&A).
 - The board panel always shows: a tab strip of all boards + "Follow host" toggle (default on for guests).
 
-## 3. Component inventory
+## 3. Component inventory (routed tree, canonical names)
 
-**Layout**: `RootLayout`, `SessionLayout`, `ColumnSplitter`, `MobileTabBar`
+```
+RootLayout
+├── Landing                       (route "/")
+│   ├── CreateRoomCTA
+│   ├── RecentRoomsList           (IndexedDB-backed)
+│   └── ThemeToggle
+├── RoomsDashboard                (route "/rooms")
+│   └── RoomCard
+├── HostClaim                     (route "/r/:id?admin=...")
+├── RoomEntry                     (route "/r/:id"  guest pre-join)
+│   ├── NameInput
+│   └── JoinButton
+└── SessionLayout                 (route "/r/:id" + "/r/:id/host")
+    ├── Topbar
+    │   ├── RoomTitle
+    │   ├── PresenceIndicator → PresenceHoverCard
+    │   ├── AdminBanner          (host only, copy join + copy admin)
+    │   ├── RaiseHandButton      (guest only)
+    │   ├── ThemeToggle
+    │   └── HostMenu             (host only)
+    ├── ColumnSplitter            (desktop ≥900px)
+    │   ├── TopicTree
+    │   │   ├── TopicNode
+    │   │   │   ├── TopicStatusIndicator
+    │   │   │   └── TopicEditPopover (host only)
+    │   │   └── ActiveTopicBadge
+    │   ├── BoardArea
+    │   │   ├── BoardTabs
+    │   │   │   └── FollowHostToggle (guest only)
+    │   │   ├── BoardCanvas
+    │   │   │   ├── PenBoard
+    │   │   │   │   ├── PenCanvas
+    │   │   │   │   ├── PenTextLayer
+    │   │   │   │   └── PenToolPalette (host only)
+    │   │   │   └── ExcalidrawBoard
+    │   │   ├── CursorLayer
+    │   │   └── ClickPingLayer
+    │   └── QAPanel
+    │       ├── QuestionComposer
+    │       ├── QuestionList
+    │       │   └── QuestionItem
+    │       │       └── VoteButton
+    │       ├── SortToggle
+    │       ├── AutoscrollLock (logic only, no UI)
+    │       └── JumpButtons
+    ├── MobileTabBar              (mobile <900px alternative to ColumnSplitter)
+    └── HandsQueuePanel           (host only; slides in from right when ≥1 hand)
+        └── HandQueueEntry
+            ├── CallOnButton
+            └── DismissButton
+```
 
-**Topic tree**: `TopicTree`, `TopicNode`, `TopicEditPopover`, `ActiveTopicBadge`, `TopicStatusIndicator`
+**Shared atomics**: `Avatar`, `Toast`, `Banner`, `EmptyState`, `LoadingDots`, `ConfirmDialog`.
 
-**Q&A**: `QAPanel`, `QuestionList`, `QuestionItem`, `QuestionComposer`, `VoteButton`, `SortToggle`, `AutoscrollLock`, `JumpButtons`
-
-**Whiteboard**: `BoardCanvas`, `PenBoard`, `ExcalidrawBoard`, `BoardTabs`, `FollowHostToggle`, `CursorLayer`, `ClickPing`, `ToolPalette` (host only)
-
-**Host controls**: `HostMenu`, `ModerationPanel`, `RoomSettings`
-
-**Shared**: `Avatar`, `NameInput`, `EmptyState`, `Toast`, `ThemeToggle`, `LoadingDots`, `Banner`
+(`ModerationPanel` and `RoomSettings` are deliberately out of v1 — moderation lives in per-presence menus on the `PresenceHoverCard`; settings can be added later via `rooms.settings_json`.)
 
 ## 4. State management
 
@@ -92,10 +135,10 @@
 - "Resort by votes" button toggles between chronological and `votes desc, createdAt asc`.
 - New questions append; "↑ New questions" pill appears if the user has scrolled away from the bottom.
 - **Autoscroll lock**: ScrollArea tracks `isAtBottom`; if user scrolls up, lock engages (no autoscroll). If they scroll back to within 50px of bottom, lock auto-disengages.
-- Jump-to-top and jump-to-bottom buttons in the corner.
+- Jump-to-top and jump-to-bottom buttons fixed in the corner of `QAPanel`.
 - Anonymous checkbox in composer. Tooltip: "Your name won't show on this question."
-- Vote button: heart/up-arrow icon + count. Disabled state if already voted. Click again to unvote.
-- Host sees an "Answered" toggle on each question.
+- Vote button: heart/up-arrow icon + count. Disabled state if already voted. Click again to unvote. Client tracks own votes from `Welcome.myVotes` + each `VoteUpdated.voterGuestId`.
+- **Answered questions are visually demoted** (muted text, strikethrough, faded vote count) and **sink to the bottom of the chronological list** (sorted by `(answered asc, createdAt asc)` so unanswered always above answered). They are not hidden — visible for context. Host's "Answered" toggle is a per-row button that flips the bool.
 
 ### Whiteboards
 
@@ -106,8 +149,8 @@
 
 ### Moderation (host)
 
-- Per-guest menu: rename, mute (can't ask/vote), kick (close ws + add to room blocklist).
-- Per-question menu: delete, mark answered, move to topic (assign `topic_id`).
+- **Per-guest menu** (from `PresenceHoverCard`): mute / unmute (toggle; muted guests can't `SubmitQuestion`/`VoteQuestion`/`RaiseHand`), kick (close ws + add to room blocklist). No host-side rename — guests own their display name via `SetDisplayName`.
+- **Per-question menu** (host only, on `QuestionItem`): delete, mark answered (toggle), **promote to topic** (atomically creates a new topic-tree node from the question and deletes the question via `PromoteQuestionToTopic`).
 
 ### Presence
 

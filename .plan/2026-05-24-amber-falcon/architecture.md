@@ -50,14 +50,14 @@
 ## 3. Concurrency model
 
 - **One tokio task per WebSocket connection** for read; another for write (split sink/stream).
-- **One "RoomActor" task per room**, held in `DashMap<RoomId, Arc<RoomActor>>`. Lazily spawned on first connect; reaped after N minutes idle if zero connections.
-- Inbound client messages → routed to room actor via an mpsc channel.
+- **One "RoomActor" task per room**. The map is `DashMap<RoomId, RoomHandle>` where `RoomHandle { cmd_tx: mpsc::Sender<RoomCmd>, broadcast: broadcast::Sender<ServerMsg> }`. The actor itself owns its `cmd_rx` inside the spawned task; only the handle is shared. Lazily spawned on first connect; reaped after **10 minutes** idle (zero connections + zero messages).
+- Inbound client messages → routed to room actor via `RoomHandle.cmd_tx`.
 - Outbound broadcasts → `tokio::sync::broadcast::Sender<ServerMsg>` cloned to each connection writer.
-- DB writes batched/serialized through a single tokio task with a small mpsc queue to keep SQLite single-writer happy (WAL gets us concurrent reads).
+- DB writes are serialized through a single dedicated tokio task with its own SQLite connection. Concurrent reads use the shared `r2d2` pool. WAL gets us concurrent reads + one writer.
 
 ## 4. Authoritative state
 
-- Server is the source of truth. Clients send **intents** (`SubmitQuestion`, `AddStroke`, `SetActiveTopic`, ...). Server validates, applies, broadcasts the **outcome** event to all subscribers, persists where appropriate.
+- Server is the source of truth. Clients send **intents** (`SubmitQuestion`, `PenStrokeBegin`/`Append`/`End`, `SetActiveTopic`, ...). Server validates, applies, broadcasts the **outcome** event to all subscribers (with a fresh per-room monotonic `seq`), persists where appropriate.
 - Optimistic UI on client is fine for low-stakes events (strokes, cursor moves); server confirmation overrides.
 - Cursor + stroke-point streams are *not* persisted; only stroke completions and full snapshots are.
 
@@ -66,7 +66,7 @@
 - **Cursor moves**: client throttles to 20Hz before send.
 - **Stroke points**: client sends raw pointer events but batches each frame's points into one message at requestAnimationFrame cadence.
 - **Server fanout**: `broadcast` channel with capacity 256. If a slow client lags, drop oldest with a warning; client refetches snapshot on reconnect.
-- **Snapshot strategy**: on connect or after a dropped frame, client requests `GetRoomSnapshot` and gets the canonical state.
+- **Snapshot strategy**: on connect, the server sends `Welcome` with the canonical state. After a dropped frame (detected via gap in per-room `seq`), the client sends `GetSnapshot` to resync.
 
 ## 6. Asset pipeline
 
@@ -87,21 +87,34 @@
 ```
 topic-tree-with-qav/
 ├── justfile
+├── package.json            # workspace root (pnpm)
+├── pnpm-workspace.yaml     # declares web/ + e2e/ + docs/
+├── pnpm-lock.yaml
 ├── scripts/                # any just recipe >5 lines
 │   ├── dev.sh
 │   ├── ci-e2e.sh
-│   └── visual-review.sh
+│   ├── snapshot-baseline.sh
+│   ├── kimi-review.sh
+│   ├── review-code.sh
+│   ├── railway-init.sh
+│   ├── docs-build.sh
+│   └── gh-repo-meta.sh
 ├── server/                 # Rust crate
 │   ├── Cargo.toml
+│   ├── Cargo.lock          # checked in (binary crate)
+│   ├── build.rs            # ensures web/dist/ exists (creates empty if missing)
 │   ├── src/
 │   │   ├── main.rs
 │   │   ├── http.rs
 │   │   ├── ws.rs
-│   │   ├── room.rs
+│   │   ├── room.rs         # RoomActor + RoomHandle
 │   │   ├── db.rs
-│   │   ├── proto.rs       # serde types — single source of truth
+│   │   ├── proto.rs        # serde + ts-rs structs — single source of truth
 │   │   ├── auth.rs
+│   │   ├── rate_limit.rs
 │   │   └── moderation.rs
+│   ├── migrations/
+│   │   └── *.sql
 │   └── tests/
 │       └── integration_*.rs
 ├── web/                    # Vite + React app
@@ -109,17 +122,20 @@ topic-tree-with-qav/
 │   ├── vite.config.ts
 │   ├── tsconfig.json
 │   ├── tailwind.config.ts
+│   ├── dist/
+│   │   └── .gitkeep        # ensures the embed path always exists for builds
 │   ├── src/
 │   │   ├── main.tsx
 │   │   ├── App.tsx
 │   │   ├── routes/
 │   │   ├── components/
-│   │   ├── ws/             # ws client + reconnect
+│   │   ├── ws/             # ws client + reconnect + seq tracking
 │   │   ├── store/          # zustand stores
-│   │   ├── proto/          # generated/checked-in proto types
+│   │   ├── proto/          # generated TS from server's ts-rs
 │   │   ├── whiteboard/
 │   │   ├── topictree/
 │   │   ├── qa/
+│   │   ├── handsup/
 │   │   └── theme/
 │   └── tests/
 │       └── *.spec.ts       # vitest
@@ -131,14 +147,30 @@ topic-tree-with-qav/
 │   │   ├── qa.spec.ts
 │   │   ├── whiteboard-pen.spec.ts
 │   │   ├── whiteboard-excalidraw.spec.ts
-│   │   └── moderation.spec.ts
-│   └── screenshots/        # baselines, ignored on first run
+│   │   ├── raise-hand.spec.ts
+│   │   ├── moderation.spec.ts
+│   │   ├── mobile.spec.ts
+│   │   └── reconnect.spec.ts
+│   └── screenshots/        # paired light + dark baselines per view
+├── docs/                   # GitHub Pages source (deployment + usage docs)
+│   ├── index.md
+│   ├── usage.md
+│   ├── deployment.md
+│   ├── architecture.md
+│   ├── assets/
+│   │   └── screenshots/    # auto-copied from e2e/screenshots/_docs/
+│   └── _config.yml         # or vitepress config — chosen in Phase 8.9
 ├── .plan/
 │   └── 2026-05-24-amber-falcon/
+├── .review/                # per-phase per-round review artifacts (gitignored content)
 ├── .github/workflows/
-│   └── ci.yml
+│   ├── ci.yml
+│   ├── deploy.yml          # → Railway
+│   └── pages.yml           # → GitHub Pages from docs/
 ├── Dockerfile
+├── .dockerignore
 ├── railway.toml
+├── CLAUDE.md
 └── README.md
 ```
 

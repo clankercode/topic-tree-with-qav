@@ -1,0 +1,24 @@
+# build artifacts
+node_modules/
+web/dist/*
+!web/dist/.gitkeep
+server/target/
+e2e/test-results/
+e2e/playwright-report/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
+# local data
+*.db
+*.db-wal
+*.db-shm
+dev.db*
+
+# review artifacts (per-phase per-round; transient by design)
+.review/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp

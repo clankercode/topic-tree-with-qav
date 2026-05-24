@@ -101,8 +101,9 @@ export async function joinGuest(browser: Browser, joinUrl: string, name: string)
 
 ## 5. Visual regression
 
-- Snapshots: `e2e/screenshots/<spec>/<step>.png`.
-- Granularity: per-feature key views (landing, host view empty, host view loaded, guest view, mobile guest view), in both light and dark theme.
+- Snapshots: `e2e/screenshots/<spec>/<step>-<theme>.png` where `<theme>` ∈ `{light, dark}`.
+- Granularity: per-feature key views (landing, host view empty, host view loaded, guest view, mobile guest view, raise-hand queue, focused board switch, kicked screen), each in **both** light and dark theme.
+- **Pairing rule**: a CI step (`scripts/check-snapshot-pairs.sh`) asserts every `*-light.png` has a matching `*-dark.png` (and vice versa). PR fails if a pair is missing.
 - Tolerance: `maxDiffPixelRatio: 0.005`, animations disabled via `await page.emulateMedia({ reducedMotion: 'reduce' })`.
 - Update workflow: `just snapshot-update` runs Playwright with `--update-snapshots`; commit changed PNGs.
 
@@ -191,8 +192,11 @@ Trigger as needed; not part of CI.
 
 `.github/workflows/ci.yml`:
 
-- `lint` job: `pnpm -C web typecheck && pnpm -C web lint && cargo clippy --all-targets -- -D warnings && cargo fmt --check`.
-- `test-frontend`: `pnpm -C web test --run`.
-- `test-backend`: `cargo test --workspace`.
+- `setup`: install `just` via `extractions/setup-just@v2`; install Node + pnpm + Rust toolchain; **install Playwright browsers**: `pnpm -C e2e exec playwright install --with-deps chromium`.
+- `lint` job: `just lint` (= `pnpm -C web typecheck && pnpm -C web lint && cargo clippy --all-targets -- -D warnings && cargo fmt --check`).
+- `test-frontend`: `just test-web` (= `pnpm -C web test --run`).
+- `test-backend`: `just test-server`.
 - `test-e2e`: `just ci-e2e` (boots binary, runs Playwright headed=false on chromium, uploads diffs as artifacts).
-- All four run in parallel. Required for merge.
+- `proto-drift`: `just proto-gen && git diff --exit-code web/src/proto/generated.ts` — fails the build if Rust serde types drift from TS without regeneration.
+- `snapshot-pairs`: `bash scripts/check-snapshot-pairs.sh` — fails if any baseline lacks its theme pair.
+- All jobs run in parallel where independent. Required for merge.

@@ -152,10 +152,18 @@ Skip nits unless they cluster.
 
 After every commit, invoke the skill. Decision tree (the skill encapsulates this; here for reference):
 
-- Are tests green? If no → stop, surface failure.
-- Are there uncommitted changes? If yes → resolve.
+- Are tests green? If no → **stop**.
+- Are there uncommitted changes? If yes → resolve before continuing.
 - Is the current phase complete? If no → next task.
-- Is the next phase blocking on user input? If yes → stop, surface question.
+- Is the next phase blocking on user input? If yes → **stop**.
 - Otherwise → next phase.
 
-This is the autonomous-continuation cadence the user requires.
+### Stop output channel
+
+When the decision is "stop", produce three artifacts in this order:
+
+1. **Append a line to `.plan/STATUS.md`**: `YYYY-MM-DD HH:MM | phase=N | status=stopped | reason=<one phrase> | next=<what's needed>`. This is the durable audit log.
+2. **Write the full handoff context** to `.plan/STATUS-DETAIL.md` (overwrite): the failing test output, the blocking question, the next concrete step. Future agent picks this up first when resuming.
+3. **`attn "<msg>"`** via bash if and only if the user is configured for it (per `~/CLAUDE.md`). Phrase the message as: who you are, what phase/task, what's blocking, what you need. No symbols, no jargon — TTS-friendly.
+
+For "continue" decisions, just write the STATUS.md line (no detail file, no `attn`).

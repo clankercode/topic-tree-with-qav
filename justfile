@@ -84,10 +84,11 @@ serve:
     RUST_LOG=info DATABASE_PATH=./dev.db PORT={{SERVER_PORT}} \
         ./server/target/release/server
 
-# release binary with in-memory DB, debug logging, random port (used by Playwright)
+# release binary with a per-invocation temp-file DB, debug logging, random port (used by Playwright)
+# (we don't use :memory: because r2d2 connection-pooling would split connections across
+# independent in-memory DBs — see .plan/.../data-model.md "Read/write split" + risks.md)
 serve-test:
-    RUST_LOG=debug DATABASE_PATH=:memory: PORT=0 TEST_FIXED_NOW=1700000000000 \
-        ./server/target/release/server
+    bash scripts/serve-test.sh
 
 # ──────────────────────────────────────────────────────────────────────────────
 # test
@@ -172,6 +173,34 @@ db-migrations:
 # open the dev DB in sqlite3 REPL
 db-shell:
     sqlite3 ./dev.db
+
+# ──────────────────────────────────────────────────────────────────────────────
+# docs site (GitHub Pages, Vitepress)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# dev-serve the docs site
+docs-dev:
+    pnpm -C docs dev
+
+# build the docs site (copies fresh screenshots from e2e/screenshots/_docs/ first)
+docs-build:
+    bash scripts/docs-build.sh
+
+# regenerate docs screenshots via the dedicated Playwright suite
+docs-screenshots: build
+    pnpm -C e2e test docs-screenshots.spec.ts
+
+# ──────────────────────────────────────────────────────────────────────────────
+# GitHub repo metadata (description / homepage / topics / pages source)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# apply description + homepage + topics + Pages source to the GitHub repo (idempotent)
+gh-meta:
+    bash scripts/gh-repo-meta.sh
+
+# show what gh-meta would set (no-op)
+gh-meta-dry:
+    bash scripts/gh-repo-meta.sh --dry-run
 
 # ──────────────────────────────────────────────────────────────────────────────
 # deploy (Railway)

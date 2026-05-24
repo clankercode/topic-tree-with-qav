@@ -117,10 +117,67 @@ All confirmed with user 2026-05-24:
 
 **Risk**: `viewModeEnabled` on Excalidraw is the JS toggle; a determined guest could re-enable it via devtools and send `ExcalidrawUpdate` to our ws. Our server *also* rejects non-admin `ExcalidrawUpdate`, so this is fine — but only because we have defense in depth. Don't drop the server check.
 
-## R14. Light/dark parity drift
+## R15. Host loses admin access if IndexedDB is cleared
+
+**Risk**: Admin token only lives in the host's browser IndexedDB. Clearing site data, switching browsers, or losing the device = loss of admin access to all previously created rooms.
+
+**Mitigation**:
+- Show an explicit **"Save your admin link"** modal once on room creation, with copy button + email-to-self affordance. Frame as "the only way back in."
+- The admin URL itself (`/r/:id?admin=<token>`) is the recovery key. Document this prominently in the docs site (Phase 9.5 host usage).
+- Out of scope: server-side recovery via email/SMS — would require auth infrastructure we don't have.
+
+## R16. `guestId` clearing bypasses vote dedup + mute + kick
+
+**Risk**: Vote dedup, mute, kick all key off the client-side-generated `guestId` in localStorage. A determined guest can clear storage and re-join with a fresh id, evading mute/kick and double-voting.
+
+**Mitigation**:
+- This is an **accepted no-auth limitation** of the design. Documented.
+- Defense: rate-limit per-IP at the ws layer (cheap; mitigates the bot case but not the human-with-incognito case).
+- v1.x add (if abuse becomes real): server-issued per-room cookie containing a signed `participant_id`; binds across localStorage clears. Not implemented in v1.
+
+## R17. SQLite WAL corruption on hard shutdown
+
+**Risk**: Railway can SIGKILL containers during deploy or instance failure. WAL mode is robust against this in modern SQLite, but a corrupted `-wal` is possible in pathological cases.
+
+**Mitigation**:
+- `PRAGMA synchronous=NORMAL` (already in spec) — durable across power loss; not against media corruption.
+- Periodic backup: `just db-dump RAILWAY` run from a cron (Railway's scheduler or external).
+- On boot, if `app.db` fails integrity check (`PRAGMA integrity_check`), the server writes a `.broken-<ts>` snapshot aside and starts fresh. Logged loudly. Accept data loss for v1.
+
+## R18. Railway WSS proxy idle timeout
+
+**Risk**: Some PaaS proxies drop idle WebSocket connections after 60-120s. If clients aren't actively sending, the connection silently dies.
+
+**Mitigation**:
+- Server-side `Ping` every 25s (already in spec) keeps the proxy from idling. Verify in Phase 9 by leaving a session idle for 10min and confirming connection stays alive against the deployed URL.
+
+## R19. `@excalidraw/excalidraw` API drift
+
+**Risk**: Excalidraw moves quickly. Field names on `elements[]` and `appState` can rename between minor versions; `excalidrawAPI` exposure can shift.
+
+**Mitigation**:
+- Pin `@excalidraw/excalidraw` to an exact version (no `^`) in `web/package.json`.
+- Phase 5 spike: write a `web/tests/excalidraw-api-shape.spec.ts` that asserts the API surface we use (`updateScene`, `getSceneCoordsFromViewport`, `viewModeEnabled`, collaborator pointer support). Bump-then-fix when we choose to upgrade.
+
+## R20. Broadcast channel capacity exhaustion
+
+**Risk**: `tokio::sync::broadcast` channel capacity 256 — if a snapshot burst arrives, slow clients can fall behind and lose messages.
+
+**Mitigation**:
+- Architectural choice: drop-oldest with a warning; client falls back to `GetSnapshot` after detecting a `seq` gap. Plan-spec already covers this.
+- Phase 9 e2e: simulate a slow client by routing ws frames through a delay; confirm the recovery path triggers.
+
+## R21. Unbounded RoomActor memory if reap timeout missing
+
+**Risk**: A room with zero connections still consuming memory forever.
+
+**Mitigation**:
+- Reap idle rooms after **10 minutes** with no active connections AND no inbound messages. Implemented in Phase 1 (added to acceptance criteria).
+- Memory per idle RoomActor is small (~KB) but compounded across thousands of historical rooms it adds up.
+
+## R22. Light/dark parity drift
 
 **Risk**: Designs evolve; the dark mode lags.
 
 **Mitigation**:
-- Every visual regression baseline has a paired dark-mode shot. Drift trips CI.
-- Phase 8 explicitly closes parity before lock-in.
+- Every visual regression baseline has a paired dark-mode shot. CI runs `scripts/check-snapshot-pairs.sh` and fails on any baseline missing a partner. Phase 8 explicitly closes parity before lock-in.
