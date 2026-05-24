@@ -1792,6 +1792,55 @@ async fn handle_text(
             }
             Ok(())
         }
+        ClientMsg::Cursor { id, board_id, x, y, .. } => {
+            if !global_rate_limiter().check(client_id, "Cursor", Quota::per_second(30.0)) {
+                return Ok(());
+            }
+            let display_name = room
+                .presence()
+                .iter()
+                .find(|p| p.guest_id == guest_id)
+                .map(|p| p.display_name.clone())
+                .unwrap_or_default();
+            broadcast_cursor_moved(room, &board_id, client_id, guest_id, &display_name, x, y);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::Click { id, board_id, x, y, .. } => {
+            if !global_rate_limiter().check(client_id, "Click", Quota::per_second(30.0)) {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::RATE_LIMIT, "click rate exceeded", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let display_name = room
+                .presence()
+                .iter()
+                .find(|p| p.guest_id == guest_id)
+                .map(|p| p.display_name.clone())
+                .unwrap_or_default();
+            broadcast_clicked(room, &board_id, client_id, guest_id, &display_name, x, y);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -2083,6 +2132,54 @@ fn broadcast_pen_undone(
         board_id: board_id.to_string(),
         removed_stroke_id,
         removed_text_id,
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_cursor_moved(
+    room: &Arc<Room>,
+    board_id: &str,
+    client_id: &str,
+    guest_id: &str,
+    display_name: &str,
+    x: f64,
+    y: f64,
+) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::CursorMoved {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board_id: board_id.to_string(),
+        client_id: client_id.to_string(),
+        guest_id: guest_id.to_string(),
+        display_name: display_name.to_string(),
+        x,
+        y,
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+fn broadcast_clicked(
+    room: &Arc<Room>,
+    board_id: &str,
+    client_id: &str,
+    guest_id: &str,
+    display_name: &str,
+    x: f64,
+    y: f64,
+) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::Clicked {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        board_id: board_id.to_string(),
+        client_id: client_id.to_string(),
+        guest_id: guest_id.to_string(),
+        display_name: display_name.to_string(),
+        x,
+        y,
     };
     let _ = room.broadcast.send(msg);
 }

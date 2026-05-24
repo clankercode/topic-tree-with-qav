@@ -171,4 +171,6 @@ export type ClientMsg =
   | { v: 1; id?: string; type: "CallOnHand"; guestId: string }
   | { v: 1; id?: string; type: "DismissHand"; guestId: string }
   | { v: 1; id?: string; type: "PromoteQuestionToTopic"; questionId: string; parentTopicId?: string; afterTopicId?: string }
+  | { v: 1; id?: string; type: "Cursor"; boardId: string; x: number; y: number }
+  | { v: 1; id?: string; type: "Click"; boardId: string; x: number; y: number }
   | { v: 1; id?: string; type: string; [k: string]: unknown };

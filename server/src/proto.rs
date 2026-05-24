@@ -515,6 +515,22 @@ pub enum ClientMsg {
         id: Option<String>,
         board_id: String,
     },
+    Cursor {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        x: f64,
+        y: f64,
+    },
+    Click {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        x: f64,
+        y: f64,
+    },
 }
 
 // ──────────────────────────── server → client ───────────────────────────
@@ -718,6 +734,28 @@ pub enum ServerMsg {
         board_id: String,
         removed_stroke_id: Option<String>,
         removed_text_id: Option<String>,
+    },
+    CursorMoved {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        client_id: String,
+        guest_id: String,
+        display_name: String,
+        x: f64,
+        y: f64,
+    },
+    Clicked {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        client_id: String,
+        guest_id: String,
+        display_name: String,
+        x: f64,
+        y: f64,
     },
 }
 
@@ -1200,6 +1238,87 @@ mod tests {
         let s = serde_json::to_string(&msg).unwrap();
         assert!(s.contains("\"type\":\"FocusedBoardChanged\""));
         assert!(s.contains("\"boardId\":\"b1\""));
+        let _back: ServerMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn cursor_intent_round_trips() {
+        let msg = ClientMsg::Cursor {
+            v: 1,
+            id: Some("c1".into()),
+            board_id: "b1".into(),
+            x: 100.5,
+            y: 200.75,
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"Cursor\""));
+        assert!(s.contains("\"boardId\":\"b1\""));
+        assert!(s.contains("\"x\":100.5"));
+        assert!(s.contains("\"y\":200.75"));
+        let _back: ClientMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn click_intent_round_trips() {
+        let msg = ClientMsg::Click {
+            v: 1,
+            id: Some("c1".into()),
+            board_id: "b1".into(),
+            x: 150.0,
+            y: 250.0,
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"Click\""));
+        assert!(s.contains("\"boardId\":\"b1\""));
+        assert!(s.contains("\"x\":150"));
+        assert!(s.contains("\"y\":250"));
+        let _back: ClientMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn cursor_moved_round_trips() {
+        let msg = ServerMsg::CursorMoved {
+            v: 1,
+            ts: 100,
+            seq: 13,
+            board_id: "b1".into(),
+            client_id: "c1".into(),
+            guest_id: "g1".into(),
+            display_name: "Alice".into(),
+            x: 100.5,
+            y: 200.75,
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"CursorMoved\""));
+        assert!(s.contains("\"boardId\":\"b1\""));
+        assert!(s.contains("\"clientId\":\"c1\""));
+        assert!(s.contains("\"guestId\":\"g1\""));
+        assert!(s.contains("\"displayName\":\"Alice\""));
+        assert!(s.contains("\"x\":100.5"));
+        assert!(s.contains("\"y\":200.75"));
+        let _back: ServerMsg = serde_json::from_str(&s).unwrap();
+    }
+
+    #[test]
+    fn clicked_round_trips() {
+        let msg = ServerMsg::Clicked {
+            v: 1,
+            ts: 100,
+            seq: 14,
+            board_id: "b1".into(),
+            client_id: "c1".into(),
+            guest_id: "g1".into(),
+            display_name: "Alice".into(),
+            x: 150.0,
+            y: 250.0,
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        assert!(s.contains("\"type\":\"Clicked\""));
+        assert!(s.contains("\"boardId\":\"b1\""));
+        assert!(s.contains("\"clientId\":\"c1\""));
+        assert!(s.contains("\"displayName\":\"Alice\""));
+        assert!(s.contains("\"x\":150"));
+        assert!(s.contains("\"y\":250"));
         let _back: ServerMsg = serde_json::from_str(&s).unwrap();
     }
 }

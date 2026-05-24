@@ -114,6 +114,14 @@ export function applyServerMessage(msg: ServerMsg): void {
       store.applyPenUndone(m.boardId, m.removedStrokeId, m.removedTextId);
       return;
     }
+    case "CursorMoved": {
+      store.setLastSeq(msg.seq);
+      return;
+    }
+    case "Clicked": {
+      store.setLastSeq(msg.seq);
+      return;
+    }
     case "HandsUpdated": {
       const m = msg as Extract<ServerMsg, { type: "HandsUpdated" }>;
       store.applyHandsUpdated(m.hands, msg.seq);
