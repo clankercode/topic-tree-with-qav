@@ -5,7 +5,8 @@ import { sendWsMsg } from "../ws/manager";
 import { BoardTabs } from "./BoardTabs";
 import { CreateBoardDialog } from "./CreateBoardDialog";
 import { ExcalidrawBoard } from "./ExcalidrawBoard";
-import type { ExcalidrawBoard as ExcalidrawBoardType } from "../ws/types";
+import { PenBoard } from "./PenBoard";
+import type { ExcalidrawBoard as ExcalidrawBoardType, PenBoard as PenBoardType } from "../ws/types";
 
 export function BoardPanel() {
   const { boards, focusedBoardId, me } = useSessionStore();
@@ -62,9 +63,7 @@ export function BoardPanel() {
         {focusedBoard?.kind === "excalidraw" ? (
           <ExcalidrawBoard board={focusedBoard as ExcalidrawBoardType} isHost={isHost} />
         ) : focusedBoard?.kind === "pen" ? (
-          <div className="flex items-center justify-center h-full text-[rgb(var(--muted))]">
-            Pen board (Phase 4 not yet implemented)
-          </div>
+          <PenBoard boardId={focusedBoard.id} content={(focusedBoard as PenBoardType).content ?? { strokes: [], texts: [] }} isHost={isHost} />
         ) : (
           <div className="flex items-center justify-center h-full text-[rgb(var(--muted))]">
             Select a board

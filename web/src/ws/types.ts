@@ -40,6 +40,11 @@ export interface Board {
   createdAt: number;
 }
 
+export interface PenBoard extends Board {
+  kind: "pen";
+  content: PenBoardContent;
+}
+
 export interface PenText {
   id: string;
   x: number;
@@ -71,7 +76,7 @@ export interface ExcalidrawBoard extends Board {
   appState: unknown;
 }
 
-export type FatBoard = Board | ExcalidrawBoard;
+export type FatBoard = Board | ExcalidrawBoard | PenBoard;
 
 export interface RoomSummary {
   id: string;
