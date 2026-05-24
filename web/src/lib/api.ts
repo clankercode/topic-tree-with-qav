@@ -19,7 +19,12 @@ export async function createRoom(req: CreateRoomRequest = {}): Promise<CreatedRo
     body: JSON.stringify(req),
   });
   if (!res.ok) {
-    throw new Error(`createRoom failed: HTTP ${res.status}`);
+    let msg = `createRoom failed: HTTP ${res.status}`;
+    try {
+      const err = await res.json();
+      if (err.error) msg = err.error;
+    } catch {}
+    throw new Error(msg);
   }
   const body = (await res.json()) as Partial<CreatedRoom>;
   const roomId = body.roomId ?? (body as Partial<CreatedRoom> & { id?: string }).id;

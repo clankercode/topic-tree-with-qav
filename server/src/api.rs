@@ -59,8 +59,8 @@ async fn create_room(State(state): State<AppState>, body: Option<Json<CreateRoom
     let token_for_hash = admin_token.clone();
     let hash = match task::spawn_blocking(move || hash_admin_token(&token_for_hash)).await {
         Ok(Ok(h)) => h,
-        Ok(Err(e)) => return server_error(format!("hash failed: {e}")),
-        Err(e) => return server_error(format!("hash join failed: {e}")),
+        Ok(Err(_)) => return server_error("hash failed"),
+        Err(_) => return server_error("hash join failed"),
     };
 
     {
@@ -89,8 +89,8 @@ async fn create_room(State(state): State<AppState>, body: Option<Json<CreateRoom
         .await;
         match insert {
             Ok(Ok(())) => {}
-            Ok(Err(e)) => return server_error(format!("insert failed: {e}")),
-            Err(e) => return server_error(format!("insert join failed: {e}")),
+            Ok(Err(_)) => return server_error("db insert failed"),
+            Err(_) => return server_error("db insert join failed"),
         }
     }
 
@@ -105,9 +105,17 @@ async fn create_room(State(state): State<AppState>, body: Option<Json<CreateRoom
     (StatusCode::CREATED, Json(resp)).into_response()
 }
 
-fn server_error(msg: String) -> Response {
+#[derive(Debug, Serialize)]
+struct ErrorResp {
+    error: String,
+}
+
+fn server_error(msg: &str) -> Response {
     tracing::error!(error = %msg, "create_room failed");
-    (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+    let body = ErrorResp {
+        error: format!("internal error: {}", msg),
+    };
+    (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
 }
 
 pub(crate) fn now_ms() -> i64 {

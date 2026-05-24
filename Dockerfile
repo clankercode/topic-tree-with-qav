@@ -26,7 +26,10 @@ RUN cargo build --release --locked
 FROM debian:bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /data \
+ && chown 0:0 /data \
+ && chmod 755 /data
 COPY --from=server-build /repo/server/target/release/server /usr/local/bin/server
 ENV DATABASE_PATH=/data/app.db
 ENV RUST_LOG=info
