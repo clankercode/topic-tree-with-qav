@@ -1,7 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { PenCanvas } from "./PenCanvas";
 import { PenTextLayer } from "./PenTextLayer";
 import { PenToolPalette } from "./PenToolPalette";
+import { CursorLayer } from "./CursorLayer";
 import { sendWsMsg } from "../ws/manager";
 import { useSessionStore } from "../store";
 import type { PenBoardContent } from "../ws/types";
@@ -15,6 +16,21 @@ interface PenBoardProps {
 export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
   const penInProgressStrokes = useSessionStore((s) => s.penInProgressStrokes);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleCursorMove = useCallback(
+    (x: number, y: number) => {
+      sendWsMsg({ v: 1, type: "Cursor", boardId, x, y });
+    },
+    [boardId],
+  );
+
+  const handleClick = useCallback(
+    (x: number, y: number) => {
+      sendWsMsg({ v: 1, type: "Click", boardId, x, y });
+    },
+    [boardId],
+  );
 
   const getAllInProgressForBoard = useCallback(() => {
     const result = new Map<string, { color: string; size: number; points: [number, number, number][] }>();
@@ -108,7 +124,7 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
           <PenToolPalette boardId={boardId} />
         </div>
       )}
-      <div className="relative flex-1 min-h-0 border border-[rgb(var(--border))] rounded overflow-hidden">
+      <div className="relative flex-1 min-h-0 border border-[rgb(var(--border))] rounded overflow-hidden" ref={containerRef}>
         <PenCanvas
           boardId={boardId}
           strokes={content.strokes}
@@ -125,6 +141,12 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
           onTextCommit={handleTextCommit}
           onTextDelete={handleTextDelete}
           isHost={isHost}
+        />
+        <CursorLayer
+          boardId={boardId}
+          containerRef={containerRef}
+          onMouseMove={handleCursorMove}
+          onMouseClick={handleClick}
         />
       </div>
     </div>

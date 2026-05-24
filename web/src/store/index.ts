@@ -8,6 +8,8 @@ export interface Me {
   guestId: string;
 }
 
+export type CursorPosition = { x: number; y: number; displayName: string };
+
 type PendingOp =
   | { type: "add"; tempId: string; parentId: string | null; title: string; afterId: string | null }
   | { type: "rename"; topicId: string; title: string }
@@ -30,6 +32,7 @@ export interface SessionState {
   pendingOps: Map<string, PendingOp>;
   hands: RaisedHand[];
   kicked: boolean;
+  cursors: Record<string, Record<string, { x: number; y: number; displayName: string }>>;
   applyWelcome(snapshot: RoomSnapshot, seq: bigint): void;
   applyPresence(guests: Guest[], seq: bigint): void;
   applyTopicTree(topics: Topic[], activeTopicId: string | null, seq: bigint): void;
@@ -51,6 +54,9 @@ export interface SessionState {
   applyPenCleared(boardId: string): void;
   applyPenUndone(boardId: string, removedStrokeId: string | null, removedTextId: string | null): void;
   applyHandsUpdated(hands: RaisedHand[], seq: bigint): void;
+  applyCursorMoved(boardId: string, clientId: string, guestId: string, displayName: string, x: number, y: number): void;
+  removeClientCursors(clientId: string): void;
+  tick(): void;
   setLastSeq(seq: bigint): void;
   reset(): void;
   setKicked(): void;
@@ -78,6 +84,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   pendingOps: new Map(),
   hands: [],
   kicked: false,
+  cursors: {},
   applyWelcome(snapshot, seq) {
     set({
       room: snapshot.room,
@@ -317,6 +324,42 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   applyHandsUpdated(hands, seq) {
     set({ hands, lastSeq: seq });
   },
+  applyCursorMoved(boardId, clientId, _guestId, displayName, x, y) {
+    set((state) => {
+      const boardCursors = state.cursors[boardId] ?? {};
+      if (
+        boardCursors[clientId] &&
+        boardCursors[clientId].x === x &&
+        boardCursors[clientId].y === y &&
+        boardCursors[clientId].displayName === displayName
+      ) {
+        return state;
+      }
+      return {
+        cursors: {
+          ...state.cursors,
+          [boardId]: {
+            ...boardCursors,
+            [clientId]: { x, y, displayName },
+          },
+        },
+      };
+    });
+  },
+  removeClientCursors(clientId) {
+    set((state) => {
+      const newCursors: typeof state.cursors = {};
+      for (const [boardId, boardCursor] of Object.entries(state.cursors)) {
+        const newBoardCursor = { ...boardCursor };
+        delete newBoardCursor[clientId];
+        if (Object.keys(newBoardCursor).length > 0) {
+          newCursors[boardId] = newBoardCursor;
+        }
+      }
+      return { cursors: newCursors };
+    });
+  },
+  tick() {},
   setLastSeq(seq) {
     set({ lastSeq: seq });
   },
@@ -337,6 +380,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       pendingOps: new Map(),
       hands: [],
       kicked: false,
+      cursors: {},
     });
   },
   setKicked() {

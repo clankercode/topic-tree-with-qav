@@ -115,7 +115,8 @@ export function applyServerMessage(msg: ServerMsg): void {
       return;
     }
     case "CursorMoved": {
-      store.setLastSeq(msg.seq);
+      const m = msg as Extract<ServerMsg, { type: "CursorMoved" }>;
+      store.applyCursorMoved(m.boardId, m.clientId, m.guestId, m.displayName, m.x, m.y);
       return;
     }
     case "Clicked": {
