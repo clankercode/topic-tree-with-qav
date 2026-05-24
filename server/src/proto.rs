@@ -47,6 +47,33 @@ pub enum TopicStatus {
     Done,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub struct Presence {
+    pub guest_id: String,
+    pub display_name: String,
+    pub muted: bool,
+    pub joined_at: i64,
+    pub client_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub enum BoardKind {
+    Pen,
+    Excalidraw,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(feature = "ts-gen", derive(TS))]
 #[cfg_attr(
@@ -54,13 +81,45 @@ pub enum TopicStatus {
     ts(export, export_to = "../../web/src/proto/generated.ts")
 )]
 #[serde(rename_all = "camelCase")]
-pub struct Topic {
+pub struct Board {
     pub id: String,
-    pub parent_id: Option<String>,
+    pub kind: BoardKind,
     pub title: String,
     pub ord: f64,
-    pub status: TopicStatus,
     pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub struct PenText {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub text: String,
+    pub font_size: f64,
+    pub color: String,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub struct PenStrokeSummary {
+    pub id: String,
+    pub color: String,
+    pub size: f64,
+    pub points: Vec<[f32; 3]>,
+    pub created_at: i64,
+    pub ord: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,6 +143,22 @@ pub struct Guest {
     ts(export, export_to = "../../web/src/proto/generated.ts")
 )]
 #[serde(rename_all = "camelCase")]
+pub struct Topic {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub title: String,
+    pub ord: f64,
+    pub status: TopicStatus,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
 pub struct Question {
     pub id: String,
     pub room_id: String,
@@ -94,21 +169,6 @@ pub struct Question {
     pub answered: bool,
     pub created_at: i64,
     pub vote_count: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[cfg_attr(feature = "ts-gen", derive(TS))]
-#[cfg_attr(
-    feature = "ts-gen",
-    ts(export, export_to = "../../web/src/proto/generated.ts")
-)]
-#[serde(rename_all = "camelCase")]
-pub struct Presence {
-    pub guest_id: String,
-    pub display_name: String,
-    pub muted: bool,
-    pub joined_at: i64,
-    pub client_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -280,6 +340,61 @@ pub enum ClientMsg {
         id: Option<String>,
         question_id: String,
     },
+    PenStrokeBegin {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        stroke_id: String,
+        color: String,
+        size: f64,
+    },
+    PenStrokeAppend {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        stroke_id: String,
+        points: Vec<[f32; 3]>,
+    },
+    PenStrokeEnd {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        stroke_id: String,
+    },
+    PenTextSet {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        text_id: String,
+        x: f64,
+        y: f64,
+        text: String,
+        font_size: f64,
+        color: String,
+    },
+    PenTextDelete {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+        text_id: String,
+    },
+    PenClear {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+    },
+    PenUndo {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        board_id: String,
+    },
 }
 
 // ──────────────────────────── server → client ───────────────────────────
@@ -368,6 +483,59 @@ pub enum ServerMsg {
         vote_count: u32,
         voter_guest_id: String,
     },
+    PenStrokeBegun {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        stroke_id: String,
+        color: String,
+        size: f64,
+        author_client_id: String,
+    },
+    PenStrokeAppended {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        stroke_id: String,
+        points: Vec<[f32; 3]>,
+    },
+    PenStrokeEnded {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        stroke_id: String,
+    },
+    PenTextUpserted {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        text: PenText,
+    },
+    PenTextDeleted {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        text_id: String,
+    },
+    PenCleared {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+    },
+    PenUndone {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        board_id: String,
+        removed_stroke_id: Option<String>,
+        removed_text_id: Option<String>,
+    },
 }
 
 // Documented error codes used in M1 (extensible).
@@ -393,11 +561,15 @@ mod proto_export_tests {
     fn proto_export() {
         Role::export().expect("export Role");
         TopicStatus::export().expect("export TopicStatus");
+        BoardKind::export().expect("export BoardKind");
         Topic::export().expect("export Topic");
         You::export().expect("export You");
         Guest::export().expect("export Guest");
         Presence::export().expect("export Presence");
         Question::export().expect("export Question");
+        Board::export().expect("export Board");
+        PenText::export().expect("export PenText");
+        PenStrokeSummary::export().expect("export PenStrokeSummary");
         RoomSummary::export().expect("export RoomSummary");
         RoomSnapshot::export().expect("export RoomSnapshot");
         ClientMsg::export().expect("export ClientMsg");

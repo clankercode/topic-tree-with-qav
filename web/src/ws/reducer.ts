@@ -51,6 +51,48 @@ export function applyServerMessage(msg: ServerMsg): void {
       );
       return;
     }
+    case "PenStrokeBegun": {
+      const penMsg = msg as Extract<ServerMsg, { type: "PenStrokeBegun" }>;
+      store.applyPenStrokeBegun(penMsg.boardId, penMsg.strokeId, penMsg.color, penMsg.size);
+      store.setLastSeq(msg.seq);
+      return;
+    }
+    case "PenStrokeAppended": {
+      const penMsg = msg as Extract<ServerMsg, { type: "PenStrokeAppended" }>;
+      store.applyPenStrokeAppended(penMsg.boardId, penMsg.strokeId, penMsg.points);
+      store.setLastSeq(msg.seq);
+      return;
+    }
+    case "PenStrokeEnded": {
+      const penMsg = msg as Extract<ServerMsg, { type: "PenStrokeEnded" }>;
+      store.applyPenStrokeEnded(penMsg.boardId, penMsg.strokeId);
+      store.setLastSeq(msg.seq);
+      return;
+    }
+    case "PenTextUpserted": {
+      const penMsg = msg as Extract<ServerMsg, { type: "PenTextUpserted" }>;
+      store.applyPenTextUpserted(penMsg.boardId, penMsg.text);
+      store.setLastSeq(msg.seq);
+      return;
+    }
+    case "PenTextDeleted": {
+      const penMsg = msg as Extract<ServerMsg, { type: "PenTextDeleted" }>;
+      store.applyPenTextDeleted(penMsg.boardId, penMsg.textId);
+      store.setLastSeq(msg.seq);
+      return;
+    }
+    case "PenCleared": {
+      const penMsg = msg as Extract<ServerMsg, { type: "PenCleared" }>;
+      store.applyPenCleared(penMsg.boardId);
+      store.setLastSeq(msg.seq);
+      return;
+    }
+    case "PenUndone": {
+      const penMsg = msg as Extract<ServerMsg, { type: "PenUndone" }>;
+      store.applyPenUndone(penMsg.boardId, penMsg.removedStrokeId, penMsg.removedTextId);
+      store.setLastSeq(msg.seq);
+      return;
+    }
     default:
       store.setLastSeq(msg.seq);
   }

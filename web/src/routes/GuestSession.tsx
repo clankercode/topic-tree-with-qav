@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { QAPanel } from "../components/QAPanel";
+import { PenBoard } from "../components/PenBoard";
 import { TopicTree } from "../components/TopicTree";
 import { getRoom, type RoomRecord } from "../lib/idb";
 import { setWsClient } from "../ws/manager";
+import { useSessionStore } from "../store";
 import { WsClient } from "../ws/client";
 import type { SortMode } from "../components/SortToggle";
 
@@ -14,6 +16,13 @@ export function GuestSession() {
     undefined,
   );
   const [sortMode, setSortMode] = useState<SortMode>("chronological");
+  const { boards, penBoards, focusedBoardId } = useSessionStore();
+
+  const defaultBoard = boards.find((b) => b.kind === "pen");
+  const defaultBoardId = defaultBoard?.id ?? focusedBoardId ?? boards[0]?.id ?? null;
+  const penBoardContent = defaultBoardId
+    ? penBoards.get(defaultBoardId) ?? { strokes: [], texts: [] }
+    : { strokes: [], texts: [] };
 
   useEffect(() => {
     if (!roomId) {
@@ -96,6 +105,11 @@ export function GuestSession() {
             <QAPanel sortMode={sortMode} onSortChange={setSortMode} />
           </section>
         </div>
+        {defaultBoardId && (
+          <section className="flex flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] overflow-hidden">
+            <PenBoard boardId={defaultBoardId} content={penBoardContent} isHost={false} />
+          </section>
+        )}
       </div>
     </main>
   );
