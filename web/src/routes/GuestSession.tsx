@@ -4,6 +4,7 @@ import { BoardPanel } from "../components/BoardPanel";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { QAPanel } from "../components/QAPanel";
 import { RaiseHandButton } from "../components/RaiseHandButton";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { TopicTree } from "../components/TopicTree";
 import { getRoom, type RoomRecord } from "../lib/idb";
 import { setWsClient } from "../ws/manager";
@@ -118,6 +119,7 @@ export function GuestSession() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <ThemeToggle />
             <RaiseHandButton />
             <PresenceIndicator />
           </div>

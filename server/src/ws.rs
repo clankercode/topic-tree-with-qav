@@ -344,12 +344,7 @@ async fn run_connection(
             let _ = send(&mut sink, &kick_notice).await;
             let _ = send(
                 &mut sink,
-                &error_frame(
-                    error_codes::UNAUTHORIZED,
-                    "removed by host",
-                    hello_id,
-                    0,
-                ),
+                &error_frame(error_codes::UNAUTHORIZED, "removed by host", hello_id, 0),
             )
             .await;
             return Err(ConnError::Protocol("kicked".into()));
@@ -461,6 +456,7 @@ async fn run_connection(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn main_loop(
     sink: &mut futures_util::stream::SplitSink<WebSocket, Message>,
     stream: &mut futures_util::stream::SplitStream<WebSocket>,
@@ -1762,7 +1758,7 @@ fn broadcast_question_added(room: &Arc<Room>, question: &Question) {
         v: PROTOCOL_VERSION,
         ts: now_ms(),
         seq,
-        question: question.clone(),
+        question: question.to_outbound(),
     };
     let _ = room.broadcast.send(msg);
 }
@@ -1773,7 +1769,7 @@ fn broadcast_question_updated(room: &Arc<Room>, question: &Question) {
         v: PROTOCOL_VERSION,
         ts: now_ms(),
         seq,
-        question: question.clone(),
+        question: question.to_outbound(),
     };
     let _ = room.broadcast.send(msg);
 }

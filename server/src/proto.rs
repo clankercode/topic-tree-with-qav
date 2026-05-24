@@ -96,6 +96,20 @@ pub struct Question {
     pub vote_count: u32,
 }
 
+impl Question {
+    pub fn to_outbound(&self) -> Question {
+        if self.anonymous {
+            Question {
+                author_guest_id: String::new(),
+                author_name: "Anonymous".to_string(),
+                ..self.clone()
+            }
+        } else {
+            self.clone()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts-gen", derive(TS))]
 #[cfg_attr(

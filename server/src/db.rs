@@ -67,7 +67,13 @@ impl Db {
         Ok(self.pool.get()?)
     }
 
-    pub fn upsert_moderation(&self, room_id: &str, guest_id: &str, kicked: bool, muted: bool) -> Result<(), DbError> {
+    pub fn upsert_moderation(
+        &self,
+        room_id: &str,
+        guest_id: &str,
+        kicked: bool,
+        muted: bool,
+    ) -> Result<(), DbError> {
         let conn = self.get()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -81,7 +87,11 @@ impl Db {
         Ok(())
     }
 
-    pub fn get_moderation(&self, room_id: &str, guest_id: &str) -> Result<Option<(bool, bool)>, DbError> {
+    pub fn get_moderation(
+        &self,
+        room_id: &str,
+        guest_id: &str,
+    ) -> Result<Option<(bool, bool)>, DbError> {
         let conn = self.get()?;
         let result = conn.query_row(
             "SELECT kicked, muted FROM moderation WHERE room_id = ?1 AND guest_id = ?2",

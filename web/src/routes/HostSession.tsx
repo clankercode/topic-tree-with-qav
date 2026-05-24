@@ -7,6 +7,7 @@ import { HandsQueue } from "../components/HandsQueue";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { PresenceMenu } from "../components/PresenceMenu";
 import { QAPanel } from "../components/QAPanel";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { TopicTree } from "../components/TopicTree";
 import { getRoom, type RoomRecord } from "../lib/idb";
 import { setWsClient, sendWsMsg } from "../ws/manager";
@@ -149,6 +150,7 @@ export function HostSession() {
             <ActiveTopicBadge />
           </div>
           <div className="flex items-center gap-4">
+            <ThemeToggle />
             <PresenceMenu />
             <PresenceIndicator />
           </div>

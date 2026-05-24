@@ -3,7 +3,7 @@
 
 use axum::{
     body::Body,
-    extract::Path,
+    extract::{Path, State},
     http::{header, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::{any, get},
@@ -22,6 +22,7 @@ struct WebAssets;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .route("/metrics", get(metrics))
         .route("/ws", any(ws_handler))
         .merge(api::router())
         .route("/api/*rest", any(api_placeholder))
@@ -32,6 +33,19 @@ pub fn router(state: AppState) -> Router {
 
 async fn healthz() -> impl IntoResponse {
     (StatusCode::OK, "ok")
+}
+
+async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
+    let room_count = state.rooms.len();
+    let body = format!(
+        "# HELP topic_tree_rooms_total Number of active rooms\n         # TYPE topic_tree_rooms_total gauge\n         topic_tree_rooms_total {}\n",
+        room_count
+    );
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/plain; version=0.0.4")
+        .body(Body::from(body))
+        .expect("build metrics response")
 }
 
 async fn api_placeholder(uri: Uri) -> impl IntoResponse {

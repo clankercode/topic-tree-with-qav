@@ -120,6 +120,7 @@ export function applyServerMessage(msg: ServerMsg): void {
       return;
     }
     case "KickNotice": {
+      toastStore.addToast("You have been removed from this room.", "error");
       store.setKicked();
       return;
     }
@@ -127,6 +128,8 @@ export function applyServerMessage(msg: ServerMsg): void {
       const m = msg as Extract<ServerMsg, { type: "Error" }>;
       if (m.code === "muted") {
         toastStore.addToast(m.message, "error");
+      } else if (m.code === "rate_limit") {
+        toastStore.addToast("Too many requests. Please slow down.", "error");
       } else if (m.code === "unauthorized" && m.message.includes("removed")) {
         store.setKicked();
       }

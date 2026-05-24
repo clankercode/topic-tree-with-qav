@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { useEffect } from "react";
 import { ToastContainer } from "./components/ToastContainer";
 import { About } from "./routes/About";
 import { GuestSession } from "./routes/GuestSession";
@@ -7,6 +8,7 @@ import { RoomDispatch } from "./routes/RoomDispatch";
 import { RoomEntry } from "./routes/RoomEntry";
 import { RoomsDashboard } from "./routes/RoomsDashboard";
 import { HostSession } from "./routes/HostSession";
+import { useThemeStore } from "./store/theme";
 
 export function AppRoutes() {
   return (
@@ -23,6 +25,11 @@ export function AppRoutes() {
 }
 
 export function App() {
+  const initTheme = useThemeStore((s) => s.init);
+  useEffect(() => {
+    initTheme();
+  }, [initTheme]);
+
   return (
     <BrowserRouter>
       <AppRoutes />

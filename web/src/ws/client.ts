@@ -31,6 +31,8 @@ function defaultFactory(url: string): WebSocketLike {
   return new WebSocket(url) as unknown as WebSocketLike;
 }
 
+const INTENT_EXPIRY_MS = 10_000;
+
 export class WsClient {
   private readonly opts: WsClientOptions;
   private socket: WebSocketLike | null = null;
@@ -38,6 +40,7 @@ export class WsClient {
   private lastSeq: bigint | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private intentQueue: { msg: ClientMsg; timestamp: number }[] = [];
 
   constructor(opts: WsClientOptions) {
     this.opts = opts;
@@ -69,7 +72,10 @@ export class WsClient {
   }
 
   send(msg: ClientMsg): void {
-    if (!this.socket) return;
+    if (!this.socket) {
+      this.intentQueue.push({ msg, timestamp: Date.now() });
+      return;
+    }
     this.socket.send(JSON.stringify(msg));
   }
 
@@ -100,6 +106,18 @@ export class WsClient {
         ? { adminToken: this.opts.hello.adminToken }
         : {}),
     });
+    const now = Date.now();
+    const expiry = now - INTENT_EXPIRY_MS;
+    const socket = this.socket;
+    if (socket) {
+      const s = socket;
+      for (const item of this.intentQueue) {
+        if (item.timestamp > expiry) {
+          s.send(JSON.stringify(item.msg));
+        }
+      }
+    }
+    this.intentQueue = [];
     this.opts.onOpen?.();
   }
 

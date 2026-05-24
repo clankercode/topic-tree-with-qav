@@ -126,6 +126,15 @@ pub struct RateLimiter<C: Clock = SystemClock> {
     buckets: DashMap<(String, &'static str), Bucket>,
 }
 
+impl<C: Clock> Clone for RateLimiter<C> {
+    fn clone(&self) -> Self {
+        Self {
+            clock: self.clock.clone(),
+            buckets: DashMap::new(),
+        }
+    }
+}
+
 impl<C: Clock> RateLimiter<C> {
     pub fn new(clock: Arc<C>) -> Self {
         Self {
