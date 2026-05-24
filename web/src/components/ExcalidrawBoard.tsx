@@ -3,6 +3,7 @@ import { Excalidraw } from "@excalidraw/excalidraw";
 import type { ExcalidrawBoard as ExcalidrawBoardType } from "../ws/types";
 import { sendWsMsg } from "../ws/manager";
 import { CursorLayer } from "./CursorLayer";
+import { useThemeStore } from "../store/theme";
 
 interface Props {
   board: ExcalidrawBoardType;
@@ -13,6 +14,7 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
   const versionRef = useRef<number>(board.sceneVersion ?? 0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleChange = useCallback(
@@ -55,12 +57,13 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
       <Excalidraw
         viewModeEnabled={!isHost}
         onChange={handleChange}
+        theme={resolvedTheme}
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         initialData={{
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           elements: board.elements as any,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          appState: board.appState as any,
+          appState: { ...(board.appState as any), theme: resolvedTheme },
         }}
       />
       <CursorLayer

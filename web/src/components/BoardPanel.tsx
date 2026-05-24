@@ -59,11 +59,15 @@ export function BoardPanel() {
           </button>
         )}
       </div>
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden flex items-center justify-center">
         {focusedBoard?.kind === "excalidraw" ? (
-          <ExcalidrawBoard board={focusedBoard as ExcalidrawBoardType} isHost={isHost} />
+          <div className="w-full h-full">
+            <ExcalidrawBoard board={focusedBoard as ExcalidrawBoardType} isHost={isHost} />
+          </div>
         ) : focusedBoard?.kind === "pen" ? (
-          <PenBoard boardId={focusedBoard.id} content={(focusedBoard as PenBoardType).content ?? { strokes: [], texts: [] }} isHost={isHost} />
+          <div className="w-full max-w-full" style={{ aspectRatio: "16/9" }}>
+            <PenBoard boardId={focusedBoard.id} content={(focusedBoard as PenBoardType).content ?? { strokes: [], texts: [] }} isHost={isHost} />
+          </div>
         ) : (
           <div className="flex items-center justify-center h-full text-[rgb(var(--muted))]">
             Select a board

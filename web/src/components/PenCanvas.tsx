@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { getStroke } from "perfect-freehand";
 import type { PenStrokeSummary } from "../ws/types";
+import { useThemeStore } from "../store/theme";
 
 const CANVAS_WIDTH = 4096;
 const CANVAS_HEIGHT = 2304;
@@ -53,6 +54,9 @@ export function PenCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const currentStrokeRef = useRef<string | null>(null);
 
+  const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
+  const isDark = resolvedTheme === "dark";
+
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -60,7 +64,7 @@ export function PenCanvas({
     if (!ctx) return;
 
     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = isDark ? "#1a1a1a" : "#ffffff";
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     for (const stroke of strokes) {
@@ -96,7 +100,7 @@ export function PenCanvas({
       ctx.fillStyle = stroke.color;
       ctx.fill(path);
     });
-  }, [strokes, inProgressStrokes]);
+  }, [strokes, inProgressStrokes, isDark]);
 
   useEffect(() => {
     draw();
@@ -152,7 +156,7 @@ export function PenCanvas({
   };
 
   return (
-    <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-white rounded">
+    <div ref={containerRef} className="relative w-full overflow-hidden rounded" style={{ aspectRatio: "16/9" }}>
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}

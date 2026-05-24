@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { ActiveTopicBadge } from "../components/ActiveTopicBadge";
 import { AdminBanner } from "../components/AdminBanner";
 import { BoardPanel } from "../components/BoardPanel";
-import { HandsQueue } from "../components/HandsQueue";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { PresenceMenu } from "../components/PresenceMenu";
 import { QAPanel } from "../components/QAPanel";
@@ -14,6 +13,7 @@ import { setWsClient, sendWsMsg } from "../ws/manager";
 import { useSessionStore } from "../store";
 import { WsClient } from "../ws/client";
 import type { SortMode } from "../components/SortToggle";
+import { Hand, X } from "lucide-react";
 
 export function HostSession() {
   const { roomId } = useParams();
@@ -21,7 +21,18 @@ export function HostSession() {
     undefined,
   );
   const [sortMode, setSortMode] = useState<SortMode>("chronological");
-  const { topics, activeTopicId } = useSessionStore();
+  const [showHandsPopup, setShowHandsPopup] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const { topics, activeTopicId, hands } = useSessionStore();
+  const prevHandsCountRef = useRef(hands.length);
+
+  useEffect(() => {
+    if (hands.length > prevHandsCountRef.current) {
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
+    }
+    prevHandsCountRef.current = hands.length;
+  }, [hands.length]);
 
   useEffect(() => {
     if (!roomId) {
@@ -150,14 +161,84 @@ export function HostSession() {
             <ActiveTopicBadge />
           </div>
           <div className="flex items-center gap-4">
+            <div className="relative">
+              <button
+                onClick={() => setShowHandsPopup(!showHandsPopup)}
+                className={`flex items-center gap-2 rounded px-3 py-2 transition-all ${
+                  hands.length > 0
+                    ? "bg-[rgb(var(--accent))] text-white animate-pulse"
+                    : "border border-[rgb(var(--border))] text-[rgb(var(--muted))] hover:border-[rgb(var(--accent))]"
+                }`}
+                aria-label="Raised hands"
+              >
+                <Hand size={18} />
+                {hands.length > 0 && (
+                  <span className="text-lg font-bold">{hands.length}</span>
+                )}
+              </button>
+              {showToast && (
+                <div className="absolute top-full right-0 mt-2 px-4 py-2 bg-[rgb(var(--accent))] text-white rounded-lg shadow-lg animate-bounce z-50 whitespace-nowrap">
+                  New hand raised!
+                </div>
+              )}
+              {showHandsPopup && (
+                <div className="absolute top-full right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded-lg shadow-xl z-50">
+                  <div className="sticky top-0 flex items-center justify-between p-3 border-b border-[rgb(var(--border))] bg-[rgb(var(--surface))]">
+                    <span className="font-medium text-sm">Raised Hands ({hands.length})</span>
+                    <button
+                      onClick={() => setShowHandsPopup(false)}
+                      className="text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))]"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <div className="p-2">
+                    {hands.length === 0 ? (
+                      <p className="py-4 text-center text-xs text-[rgb(var(--muted))]">No raised hands.</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {[...hands].sort((a, b) => a.raisedAt - b.raisedAt).map((hand) => (
+                          <div
+                            key={hand.guestId}
+                            className="flex items-start gap-2 rounded border border-[rgb(var(--border))] bg-[rgb(var(--bg))] p-2"
+                          >
+                            <div className="flex flex-1 flex-col gap-0.5">
+                              <span className="text-xs text-[rgb(var(--muted))]">{hand.displayName}</span>
+                              <p className="text-sm">{hand.topic}</p>
+                            </div>
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => {
+                                  sendWsMsg({ v: 1, type: "CallOnHand", guestId: hand.guestId });
+                                }}
+                                className="rounded p-1 text-[rgb(var(--success))] hover:bg-[rgb(var(--success))]/10"
+                                title="Call on"
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12" /></svg>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  sendWsMsg({ v: 1, type: "DismissHand", guestId: hand.guestId });
+                                }}
+                                className="rounded p-1 text-[rgb(var(--muted))] hover:bg-red-500/10 hover:text-red-500"
+                                title="Dismiss"
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <ThemeToggle />
             <PresenceMenu />
             <PresenceIndicator />
           </div>
         </header>
-        <div className="rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-3">
-          <HandsQueue />
-        </div>
         <AdminBanner joinUrl={joinUrl} adminUrl={adminUrl} />
         <div className="grid gap-4 lg:grid-cols-2">
           <TopicTree />

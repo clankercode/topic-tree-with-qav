@@ -17,10 +17,12 @@ import { useSessionStore } from "../store";
 import { sendWsMsg } from "../ws/manager";
 import { TopicNode } from "./TopicNode";
 import { Plus } from "lucide-react";
+import { AddTopicModal } from "./AddTopicModal";
 
 export function TopicTree() {
-  const { topics, activeTopicId, me } = useSessionStore();
+  const { topics, activeTopicId, me, optimisticAddTopic, optimisticMoveTopic } = useSessionStore();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
   const isHost = me?.role === "host";
 
   const sensors = useSensors(
@@ -45,6 +47,7 @@ export function TopicTree() {
     const movedTopic = rootTopics[oldIndex];
     const afterTopic = newIndex > 0 ? rootTopics[newIndex - 1] : null;
 
+    optimisticMoveTopic(movedTopic.id, null, afterTopic?.id ?? null);
     sendWsMsg({
       v: 1,
       type: "MoveTopic",
@@ -54,16 +57,17 @@ export function TopicTree() {
     });
   }
 
-  function handleAddTopic() {
-    if (!isHost) return;
-    const title = prompt("Topic title:");
-    if (!title?.trim()) return;
+  function handleAddTopic(title: string) {
+    const tempId = crypto.randomUUID();
+    const afterId = rootTopics.length > 0 ? rootTopics[rootTopics.length - 1].id : null;
+    optimisticAddTopic(tempId, null, title, afterId);
     sendWsMsg({
       v: 1,
       type: "AddTopic",
+      id: tempId,
       parentId: null,
-      title: title.trim(),
-      afterId: rootTopics.length > 0 ? rootTopics[rootTopics.length - 1].id : null,
+      title,
+      afterId,
     });
   }
 
@@ -73,7 +77,7 @@ export function TopicTree() {
         <h2 className="text-lg font-medium">Topics</h2>
         {isHost && (
           <button
-            onClick={handleAddTopic}
+            onClick={() => setShowAddModal(true)}
             className="flex items-center gap-1 rounded bg-[rgb(var(--primary))] px-3 py-1 text-sm font-medium text-[rgb(var(--primary-fg))] hover:opacity-90"
           >
             <Plus size={16} />
@@ -111,6 +115,11 @@ export function TopicTree() {
           </SortableContext>
         </DndContext>
       )}
+      <AddTopicModal
+        open={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onAdd={handleAddTopic}
+      />
     </section>
   );
 }

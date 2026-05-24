@@ -75,7 +75,7 @@ export function RaiseHandButton() {
               </button>
             </div>
             <p className="text-sm text-[rgb(var(--muted))]">
-              In 10 words or fewer, what would you like to ask?
+              In 10 words or fewer, please describe the topic.
             </p>
             <div className="space-y-2">
               <input

@@ -20,7 +20,7 @@ export function TopicNode({
   onStartEdit,
   onEndEdit,
 }: TopicNodeProps) {
-  const { me } = useSessionStore();
+  const { me, optimisticRenameTopic } = useSessionStore();
   const isHost = me?.role === "host";
   const isDone = topic.status === "done";
 
@@ -59,6 +59,7 @@ export function TopicNode({
 
   function handleRename(newTitle: string) {
     if (!isHost || !newTitle.trim()) return;
+    optimisticRenameTopic(topic.id, newTitle.trim());
     sendWsMsg({
       v: 1,
       type: "RenameTopic",
