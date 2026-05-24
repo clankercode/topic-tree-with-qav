@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Board, ExcalidrawBoard, FatBoard, Guest, PenBoardContent, PenText, Question, RoomSnapshot, RoomSummary, Topic } from "../ws/types";
+import type { Board, ExcalidrawBoard, FatBoard, Guest, PenBoardContent, PenText, Question, RaisedHand, RoomSnapshot, RoomSummary, Topic } from "../ws/types";
 import type { Role } from "../proto/generated";
 
 export interface Me {
@@ -28,6 +28,7 @@ export interface SessionState {
   penInProgressStrokes: Map<string, { color: string; size: number; points: [number, number, number][] }>;
   lastSeq: bigint | null;
   pendingOps: Map<string, PendingOp>;
+  hands: RaisedHand[];
   applyWelcome(snapshot: RoomSnapshot, seq: bigint): void;
   applyPresence(guests: Guest[], seq: bigint): void;
   applyTopicTree(topics: Topic[], activeTopicId: string | null, seq: bigint): void;
@@ -48,6 +49,8 @@ export interface SessionState {
   applyPenTextDeleted(boardId: string, textId: string): void;
   applyPenCleared(boardId: string): void;
   applyPenUndone(boardId: string, removedStrokeId: string | null, removedTextId: string | null): void;
+  applyHandsUpdated(hands: RaisedHand[], seq: bigint): void;
+  applyQuestionPromotedToTopic(questionId: string, topic: Topic, seq: bigint): void;
   setLastSeq(seq: bigint): void;
   reset(): void;
   optimisticAddTopic(tempId: string, parentId: string | null, title: string, afterId: string | null): string;
@@ -72,6 +75,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   penInProgressStrokes: new Map(),
   lastSeq: null,
   pendingOps: new Map(),
+  hands: [],
   applyWelcome(snapshot, seq) {
     set({
       room: snapshot.room,
@@ -87,6 +91,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       myVotes: new Set(snapshot.myVotes),
       boards: snapshot.boards as FatBoard[],
       focusedBoardId: snapshot.focusedBoardId,
+      hands: snapshot.hands,
       lastSeq: seq,
       pendingOps: new Map(),
     });
@@ -307,6 +312,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { penBoards: newPenBoards };
     });
   },
+  applyHandsUpdated(hands, seq) {
+    set({ hands, lastSeq: seq });
+  },
+  applyQuestionPromotedToTopic(questionId, topic, seq) {
+    set((state) => ({
+      questions: state.questions.filter((q) => q.id !== questionId),
+      topics: [...state.topics, topic],
+      lastSeq: seq,
+    }));
+  },
   setLastSeq(seq) {
     set({ lastSeq: seq });
   },
@@ -325,6 +340,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       penInProgressStrokes: new Map(),
       lastSeq: null,
       pendingOps: new Map(),
+      hands: [],
     });
   },
   optimisticAddTopic(tempId, parentId, title, afterId) {

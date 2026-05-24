@@ -106,6 +106,16 @@ export function applyServerMessage(msg: ServerMsg): void {
       store.applyPenUndone(m.boardId, m.removedStrokeId, m.removedTextId);
       return;
     }
+    case "HandsUpdated": {
+      const m = msg as Extract<ServerMsg, { type: "HandsUpdated" }>;
+      store.applyHandsUpdated(m.hands, msg.seq);
+      return;
+    }
+    case "QuestionPromotedToTopic": {
+      const m = msg as Extract<ServerMsg, { type: "QuestionPromotedToTopic" }>;
+      store.applyQuestionPromotedToTopic(m.questionId, m.topic, msg.seq);
+      return;
+    }
     default:
       store.setLastSeq(msg.seq);
   }

@@ -3,6 +3,7 @@ import { Navigate, useParams } from "react-router-dom";
 import { BoardPanel } from "../components/BoardPanel";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { QAPanel } from "../components/QAPanel";
+import { RaiseHandButton } from "../components/RaiseHandButton";
 import { TopicTree } from "../components/TopicTree";
 import { getRoom, type RoomRecord } from "../lib/idb";
 import { setWsClient } from "../ws/manager";
@@ -89,7 +90,10 @@ export function GuestSession() {
               Joined as {record.displayName}
             </p>
           </div>
-          <PresenceIndicator />
+          <div className="flex items-center gap-3">
+            <RaiseHandButton />
+            <PresenceIndicator />
+          </div>
         </header>
         <div className="grid gap-4 lg:grid-cols-2">
           <TopicTree />

@@ -1,4 +1,4 @@
-import { Check, Trash2 } from "lucide-react";
+import { Check, Trash2, Plus } from "lucide-react";
 import type { Question } from "../ws/types";
 import { VoteButton } from "./VoteButton";
 import { useSessionStore } from "../store";
@@ -33,6 +33,15 @@ export function QuestionItem({ question, hasVoted }: QuestionItemProps) {
     });
   }
 
+  function handlePromoteToTopic() {
+    if (!isHost) return;
+    sendWsMsg({
+      v: 1,
+      type: "PromoteQuestionToTopic",
+      questionId: question.id,
+    });
+  }
+
   const displayName = question.anonymous ? "Anonymous" : question.authorName;
 
   return (
@@ -62,6 +71,14 @@ export function QuestionItem({ question, hasVoted }: QuestionItemProps) {
       </div>
       {isHost && (
         <div className="flex items-center gap-1">
+          <button
+            onClick={handlePromoteToTopic}
+            className="rounded p-1 text-[rgb(var(--accent))] hover:bg-[rgb(var(--accent))]/10"
+            aria-label="Promote to topic"
+            title="Promote to topic"
+          >
+            <Plus size={14} />
+          </button>
           <button
             onClick={handleMarkAnswered}
             className={`rounded p-1 text-xs transition-colors ${

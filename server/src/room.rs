@@ -15,9 +15,10 @@ use std::sync::{Arc, Mutex};
 use dashmap::DashMap;
 use tokio::sync::broadcast;
 
+use crate::api::now_ms;
 use crate::proto::{
-    Board, BoardKind, ExcalidrawScene, Guest, Presence, Question, RoomSnapshot, RoomSummary,
-    ServerMsg, Topic, TopicStatus, You,
+    Board, BoardKind, ExcalidrawScene, Guest, Presence, Question, RaisedHand, RoomSnapshot,
+    RoomSummary, ServerMsg, Topic, TopicStatus, You,
 };
 use serde_json::Value as JsonValue;
 
@@ -80,6 +81,7 @@ struct RoomInner {
     boards: BTreeMap<BoardId, Board>,
     excalidraw_scenes: BTreeMap<BoardId, ExcalidrawScene>,
     focused_board_id: Option<BoardId>,
+    hands: BTreeMap<GuestId, RaisedHand>,
 }
 
 impl Room {
@@ -99,6 +101,7 @@ impl Room {
                 boards: BTreeMap::new(),
                 excalidraw_scenes: BTreeMap::new(),
                 focused_board_id: None,
+                hands: BTreeMap::new(),
             }),
             broadcast: tx,
         }
@@ -354,6 +357,72 @@ impl Room {
         }
     }
 
+    pub fn hands_list(&self) -> Vec<RaisedHand> {
+        let g = self.inner.lock().expect("room inner");
+        g.hands.values().cloned().collect()
+    }
+
+    pub fn raise_hand(&self, guest_id: &str, display_name: String, topic: String, raised_at: i64) {
+        let mut g = self.inner.lock().expect("room inner");
+        g.hands.insert(
+            guest_id.to_string(),
+            RaisedHand {
+                guest_id: guest_id.to_string(),
+                display_name,
+                topic,
+                raised_at,
+            },
+        );
+    }
+
+    pub fn lower_hand(&self, guest_id: &str) -> bool {
+        let mut g = self.inner.lock().expect("room inner");
+        g.hands.remove(guest_id).is_some()
+    }
+
+    pub fn call_on_hand(&self, guest_id: &str) -> Option<RaisedHand> {
+        let mut g = self.inner.lock().expect("room inner");
+        g.hands.remove(guest_id)
+    }
+
+    pub fn dismiss_hand(&self, guest_id: &str) -> bool {
+        let mut g = self.inner.lock().expect("room inner");
+        g.hands.remove(guest_id).is_some()
+    }
+
+    pub fn promote_question_to_topic(
+        &self,
+        question_id: &str,
+        parent_topic_id: Option<String>,
+        after_topic_id: Option<String>,
+    ) -> Option<(Question, Topic)> {
+        let mut g = self.inner.lock().expect("room inner");
+        let question = g.questions.remove(question_id)?;
+        g.vote_index.remove(question_id);
+        let title = question.text.chars().take(80).collect::<String>();
+        let now = now_ms();
+        let new_ord = if let Some(after_id) = &after_topic_id {
+            g.topics.get(after_id).map(|t| t.ord + 0.5).unwrap_or(1.0)
+        } else {
+            g.topics
+                .values()
+                .map(|t| t.ord)
+                .fold(0.0, |max, o| if o > max { o } else { max })
+                + 1.0
+        };
+        let topic_id = uuid::Uuid::new_v4().to_string();
+        let topic = Topic {
+            id: topic_id.clone(),
+            parent_id: parent_topic_id,
+            title,
+            ord: new_ord,
+            status: TopicStatus::Pending,
+            created_at: now,
+        };
+        g.topics.insert(topic_id, topic.clone());
+        Some((question, topic))
+    }
+
     pub fn boards(&self) -> Vec<Board> {
         let g = self.inner.lock().expect("room inner");
         g.boards.values().cloned().collect()
@@ -422,14 +491,15 @@ impl Room {
         if board.is_none() || board.as_ref().map(|b| &b.kind) != Some(&BoardKind::Excalidraw) {
             return false;
         }
-        let scene = g.excalidraw_scenes.entry(board_id.to_string()).or_insert_with(|| {
-            ExcalidrawScene {
+        let scene = g
+            .excalidraw_scenes
+            .entry(board_id.to_string())
+            .or_insert_with(|| ExcalidrawScene {
                 board_id: board_id.to_string(),
                 scene_version: 0,
                 elements: JsonValue::Array(vec![]),
                 app_state: JsonValue::Object(serde_json::Map::new()),
-            }
-        });
+            });
         scene.scene_version = scene_version;
         scene.elements = elements;
         scene.app_state = app_state;
@@ -461,7 +531,17 @@ impl Room {
 
     /// Build the Welcome snapshot for a given client.
     pub fn snapshot_for(&self, you: You, my_guest_id: &str) -> RoomSnapshot {
-        let (guests, presence, topics, active_topic_id, questions, boards, focused_board_id, seq) = {
+        let (
+            guests,
+            presence,
+            topics,
+            active_topic_id,
+            questions,
+            boards,
+            focused_board_id,
+            hands,
+            seq,
+        ) = {
             let g = self.inner.lock().expect("room inner");
             let questions: Vec<Question> = g.questions.values().cloned().collect();
             let my_votes: Vec<String> = g
@@ -476,21 +556,36 @@ impl Room {
                 .map(|b| {
                     let mut obj = serde_json::Map::new();
                     obj.insert("id".to_string(), serde_json::Value::String(b.id.clone()));
-                    obj.insert("kind".to_string(), match b.kind {
-                        BoardKind::Pen => serde_json::Value::String("pen".to_string()),
-                        BoardKind::Excalidraw => serde_json::Value::String("excalidraw".to_string()),
-                    });
-                    obj.insert("title".to_string(), serde_json::Value::String(b.title.clone()));
-                    obj.insert("createdAt".to_string(), serde_json::Value::Number(b.created_at.into()));
+                    obj.insert(
+                        "kind".to_string(),
+                        match b.kind {
+                            BoardKind::Pen => serde_json::Value::String("pen".to_string()),
+                            BoardKind::Excalidraw => {
+                                serde_json::Value::String("excalidraw".to_string())
+                            }
+                        },
+                    );
+                    obj.insert(
+                        "title".to_string(),
+                        serde_json::Value::String(b.title.clone()),
+                    );
+                    obj.insert(
+                        "createdAt".to_string(),
+                        serde_json::Value::Number(b.created_at.into()),
+                    );
                     obj.insert("ord".to_string(), serde_json::json!(b.ord));
                     if let Some(scene) = g.excalidraw_scenes.get(&b.id) {
-                        obj.insert("sceneVersion".to_string(), serde_json::Value::Number(scene.scene_version.into()));
+                        obj.insert(
+                            "sceneVersion".to_string(),
+                            serde_json::Value::Number(scene.scene_version.into()),
+                        );
                         obj.insert("elements".to_string(), scene.elements.clone());
                         obj.insert("appState".to_string(), scene.app_state.clone());
                     }
                     serde_json::Value::Object(obj)
                 })
                 .collect();
+            let hands: Vec<RaisedHand> = g.hands.values().cloned().collect();
             (
                 g.presence
                     .values()
@@ -505,6 +600,7 @@ impl Room {
                 (questions, my_votes),
                 boards,
                 g.focused_board_id.clone(),
+                hands,
                 g.seq,
             )
         };
@@ -524,7 +620,7 @@ impl Room {
             my_votes,
             boards,
             focused_board_id,
-            hands: vec![],
+            hands,
             seq,
         }
     }
@@ -898,5 +994,106 @@ mod tests {
         let snap2 = r.snapshot_for(you("c1", "g1", Role::Guest), "g1");
         assert_eq!(snap1.questions.len(), 1);
         assert_eq!(snap2.questions.len(), 2);
+    }
+
+    #[test]
+    fn raise_hand_adds_to_queue() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_client("g1".into(), "c1".into(), "Alice".into(), 100);
+        r.raise_hand("g1", "Alice".into(), "What is Rust?".into(), 1000);
+        let hands = r.hands_list();
+        assert_eq!(hands.len(), 1);
+        assert_eq!(hands[0].guest_id, "g1");
+        assert_eq!(hands[0].display_name, "Alice");
+        assert_eq!(hands[0].topic, "What is Rust?");
+        assert_eq!(hands[0].raised_at, 1000);
+    }
+
+    #[test]
+    fn raise_hand_replaces_existing() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_client("g1".into(), "c1".into(), "Alice".into(), 100);
+        r.raise_hand("g1", "Alice".into(), "First topic".into(), 1000);
+        r.raise_hand("g1", "Alice".into(), "Second topic".into(), 2000);
+        let hands = r.hands_list();
+        assert_eq!(hands.len(), 1);
+        assert_eq!(hands[0].topic, "Second topic");
+    }
+
+    #[test]
+    fn lower_hand_removes_from_queue() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_client("g1".into(), "c1".into(), "Alice".into(), 100);
+        r.raise_hand("g1", "Alice".into(), "Topic".into(), 1000);
+        assert!(r.lower_hand("g1"));
+        assert!(r.hands_list().is_empty());
+    }
+
+    #[test]
+    fn lower_hand_returns_false_when_not_in_queue() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        assert!(!r.lower_hand("nonexistent"));
+    }
+
+    #[test]
+    fn call_on_hand_removes_and_returns() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_client("g1".into(), "c1".into(), "Alice".into(), 100);
+        r.raise_hand("g1", "Alice".into(), "Topic".into(), 1000);
+        let hand = r.call_on_hand("g1");
+        assert!(hand.is_some());
+        assert_eq!(hand.unwrap().guest_id, "g1");
+        assert!(r.hands_list().is_empty());
+    }
+
+    #[test]
+    fn dismiss_hand_removes_from_queue() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_client("g1".into(), "c1".into(), "Alice".into(), 100);
+        r.raise_hand("g1", "Alice".into(), "Topic".into(), 1000);
+        assert!(r.dismiss_hand("g1"));
+        assert!(r.hands_list().is_empty());
+    }
+
+    #[test]
+    fn promote_question_to_topic_creates_topic_and_deletes_question() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_question(make_question("q1", "What is Rust?", 3));
+        let result = r.promote_question_to_topic("q1", None, None);
+        assert!(result.is_some());
+        let (question, topic) = result.unwrap();
+        assert_eq!(question.id, "q1");
+        assert_eq!(topic.title, "What is Rust?");
+        assert!(r.questions().is_empty());
+        assert_eq!(r.topics().len(), 1);
+        assert_eq!(r.topics()[0].title, "What is Rust?");
+    }
+
+    #[test]
+    fn promote_question_to_topic_truncates_to_80_chars() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let long_text = "A".repeat(100);
+        r.add_question(make_question("q1", &long_text, 0));
+        let result = r.promote_question_to_topic("q1", None, None);
+        assert!(result.is_some());
+        let (_, topic) = result.unwrap();
+        assert_eq!(topic.title.len(), 80);
+    }
+
+    #[test]
+    fn promote_question_to_topic_nonexistent_returns_none() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let result = r.promote_question_to_topic("nonexistent", None, None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn snapshot_includes_hands() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        r.add_client("g1".into(), "c1".into(), "Alice".into(), 100);
+        r.raise_hand("g1", "Alice".into(), "Topic".into(), 1000);
+        let snap = r.snapshot_for(you("c1", "g1", Role::Guest), "g1");
+        assert_eq!(snap.hands.len(), 1);
+        assert_eq!(snap.hands[0].guest_id, "g1");
     }
 }

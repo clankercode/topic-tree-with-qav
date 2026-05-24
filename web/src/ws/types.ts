@@ -79,6 +79,13 @@ export interface RoomSummary {
   createdAt: number;
 }
 
+export interface RaisedHand {
+  guestId: string;
+  displayName: string;
+  topic: string;
+  raisedAt: number;
+}
+
 export interface RoomSnapshot {
   room: RoomSummary;
   you: You & { guestId: string };
@@ -86,7 +93,7 @@ export interface RoomSnapshot {
   topics: Topic[];
   questions: Question[];
   boards: FatBoard[];
-  hands: unknown[];
+  hands: RaisedHand[];
   myVotes: string[];
   focusedBoardId: string | null;
   activeTopicId: string | null;
@@ -133,6 +140,8 @@ export type ServerMsg =
   | (Envelope & { type: "PenUndone"; boardId: string; removedStrokeId: string | null; removedTextId: string | null })
   | (Envelope & { type: "CursorMoved"; boardId: string; clientId: string; guestId: string; displayName: string; x: number; y: number })
   | (Envelope & { type: "Clicked"; boardId: string; clientId: string; guestId: string; displayName: string; x: number; y: number })
+  | (Envelope & { type: "HandsUpdated"; hands: RaisedHand[] })
+  | (Envelope & { type: "QuestionPromotedToTopic"; questionId: string; topic: Topic })
   | (Envelope & { type: string; [k: string]: unknown });
 
 export interface ClientHello {
@@ -148,4 +157,9 @@ export type ClientMsg =
   | ClientHello
   | { v: 1; type: "Pong" }
   | { v: 1; type: "GetSnapshot"; since?: number }
+  | { v: 1; id?: string; type: "RaiseHand"; topic: string }
+  | { v: 1; id?: string; type: "LowerHand" }
+  | { v: 1; id?: string; type: "CallOnHand"; guestId: string }
+  | { v: 1; id?: string; type: "DismissHand"; guestId: string }
+  | { v: 1; id?: string; type: "PromoteQuestionToTopic"; questionId: string; parentTopicId?: string; afterTopicId?: string }
   | { v: 1; id?: string; type: string; [k: string]: unknown };

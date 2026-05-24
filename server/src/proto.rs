@@ -130,6 +130,20 @@ pub enum BoardKind {
     ts(export, export_to = "../../web/src/proto/generated.ts")
 )]
 #[serde(rename_all = "camelCase")]
+pub struct RaisedHand {
+    pub guest_id: String,
+    pub display_name: String,
+    pub topic: String,
+    pub raised_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
 pub struct Board {
     pub id: String,
     pub kind: BoardKind,
@@ -194,8 +208,7 @@ pub struct RoomSnapshot {
     #[cfg_attr(feature = "ts-gen", ts(type = "unknown[]"))]
     pub boards: Vec<JsonValue>,
     pub focused_board_id: Option<String>,
-    #[cfg_attr(feature = "ts-gen", ts(type = "unknown[]"))]
-    pub hands: Vec<JsonValue>,
+    pub hands: Vec<RaisedHand>,
     pub seq: u64,
 }
 
@@ -354,6 +367,39 @@ pub enum ClientMsg {
         #[cfg_attr(feature = "ts-gen", ts(type = "unknown"))]
         app_state: JsonValue,
     },
+    RaiseHand {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        topic: String,
+    },
+    LowerHand {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    CallOnHand {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        guest_id: String,
+    },
+    DismissHand {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        guest_id: String,
+    },
+    PromoteQuestionToTopic {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        question_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent_topic_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        after_topic_id: Option<String>,
+    },
 }
 
 // ──────────────────────────── server → client ───────────────────────────
@@ -488,6 +534,19 @@ pub enum ServerMsg {
         #[cfg_attr(feature = "ts-gen", ts(type = "unknown"))]
         app_state: JsonValue,
     },
+    HandsUpdated {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        hands: Vec<RaisedHand>,
+    },
+    QuestionPromotedToTopic {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        question_id: String,
+        topic: Topic,
+    },
 }
 
 // Documented error codes used in M1 (extensible).
@@ -518,6 +577,7 @@ mod proto_export_tests {
         Guest::export().expect("export Guest");
         Presence::export().expect("export Presence");
         Question::export().expect("export Question");
+        RaisedHand::export().expect("export RaisedHand");
         RoomSummary::export().expect("export RoomSummary");
         BoardKind::export().expect("export BoardKind");
         Board::export().expect("export Board");

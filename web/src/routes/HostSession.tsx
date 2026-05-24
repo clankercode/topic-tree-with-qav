@@ -3,6 +3,7 @@ import { Navigate, useParams } from "react-router-dom";
 import { ActiveTopicBadge } from "../components/ActiveTopicBadge";
 import { AdminBanner } from "../components/AdminBanner";
 import { BoardPanel } from "../components/BoardPanel";
+import { HandsQueue } from "../components/HandsQueue";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { QAPanel } from "../components/QAPanel";
 import { TopicTree } from "../components/TopicTree";
@@ -148,6 +149,9 @@ export function HostSession() {
           </div>
           <PresenceIndicator />
         </header>
+        <div className="rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-3">
+          <HandsQueue />
+        </div>
         <AdminBanner joinUrl={joinUrl} adminUrl={adminUrl} />
         <div className="grid gap-4 lg:grid-cols-2">
           <TopicTree />

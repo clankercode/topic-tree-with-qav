@@ -34,8 +34,7 @@ use uuid::Uuid;
 use crate::api::now_ms;
 use crate::auth::verify_admin_token;
 use crate::proto::{
-    error_codes, ClientMsg, Question, Role, ServerMsg, Topic, TopicStatus,
-    You, PROTOCOL_VERSION,
+    error_codes, ClientMsg, Question, Role, ServerMsg, Topic, TopicStatus, You, PROTOCOL_VERSION,
 };
 use crate::room::Room;
 use crate::state::AppState;
@@ -473,6 +472,7 @@ async fn handle_text(
             return Err(e.to_string());
         }
     };
+    #[allow(clippy::needless_borrow)]
     match msg {
         ClientMsg::Hello { id, .. } => {
             let _ = send(
@@ -954,10 +954,7 @@ async fn handle_text(
             Ok(())
         }
         ClientMsg::CreateBoard {
-            id,
-            kind,
-            title,
-            ..
+            id, kind, title, ..
         } => {
             if role != Role::Host {
                 let _ = send(
@@ -1061,11 +1058,7 @@ async fn handle_text(
             }
             Ok(())
         }
-        ClientMsg::DeleteBoard {
-            id,
-            board_id,
-            ..
-        } => {
+        ClientMsg::DeleteBoard { id, board_id, .. } => {
             if role != Role::Host {
                 let _ = send(
                     sink,
@@ -1099,11 +1092,7 @@ async fn handle_text(
             }
             Ok(())
         }
-        ClientMsg::SetFocusedBoard {
-            id,
-            board_id,
-            ..
-        } => {
+        ClientMsg::SetFocusedBoard { id, board_id, .. } => {
             if role != Role::Host {
                 let _ = send(
                     sink,
@@ -1155,7 +1144,13 @@ async fn handle_text(
                 return Ok(());
             }
             let now = now_ms();
-            if !room.update_excalidraw_scene(&board_id, scene_version, elements.clone(), app_state.clone(), now) {
+            if !room.update_excalidraw_scene(
+                &board_id,
+                scene_version,
+                elements.clone(),
+                app_state.clone(),
+                now,
+            ) {
                 let _ = send(
                     sink,
                     &error_frame(
@@ -1169,6 +1164,164 @@ async fn handle_text(
                 return Ok(());
             }
             broadcast_excalidraw_delta(room, &board_id, scene_version, &elements, &app_state);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::RaiseHand { id, topic, .. } => {
+            let topic = topic.trim().to_string();
+            if topic.is_empty() || topic.len() > 80 {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "topic must be 1..=80 chars",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            let word_count = topic.split_whitespace().count();
+            if word_count > 10 {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "topic must be 10 words or fewer",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            let presence = room.presence();
+            let display_name = presence
+                .iter()
+                .find(|p| p.guest_id == guest_id)
+                .map(|p| p.display_name.clone())
+                .unwrap_or_else(|| "Guest".to_string());
+            let now = now_ms();
+            room.raise_hand(guest_id, display_name, topic, now);
+            broadcast_hands_updated(&room);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::LowerHand { id, .. } => {
+            room.lower_hand(guest_id);
+            broadcast_hands_updated(&room);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::CallOnHand {
+            id,
+            guest_id: target_guest_id,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let _ = room.call_on_hand(&target_guest_id);
+            broadcast_hands_updated(&room);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::DismissHand {
+            id,
+            guest_id: target_guest_id,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            room.dismiss_hand(&target_guest_id);
+            broadcast_hands_updated(&room);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::PromoteQuestionToTopic {
+            id,
+            question_id,
+            parent_topic_id,
+            after_topic_id,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let Some((_question, topic)) =
+                room.promote_question_to_topic(&question_id, parent_topic_id, after_topic_id)
+            else {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        "question not found",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            };
+            broadcast_question_promoted_to_topic(&room, &question_id, &topic);
+            broadcast_topic_tree(&room);
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -1341,6 +1494,31 @@ fn broadcast_excalidraw_scene_reset(
         scene_version,
         elements: elements.clone(),
         app_state: app_state.clone(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+#[allow(clippy::needless_borrow)]
+fn broadcast_hands_updated(room: &Arc<Room>) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::HandsUpdated {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        hands: room.hands_list(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
+#[allow(clippy::needless_borrow)]
+fn broadcast_question_promoted_to_topic(room: &Arc<Room>, question_id: &str, topic: &Topic) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::QuestionPromotedToTopic {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        question_id: question_id.to_string(),
+        topic: topic.clone(),
     };
     let _ = room.broadcast.send(msg);
 }
