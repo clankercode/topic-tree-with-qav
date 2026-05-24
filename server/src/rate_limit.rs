@@ -138,12 +138,12 @@ impl<C: Clock> RateLimiter<C> {
     /// `false` if the bucket is empty (the caller should drop the message
     /// and, per `protocol.md`, may emit `Error{code:"rate_limit"}`).
     pub fn check(&self, client_id: &str, kind: &'static str, quota: Quota) -> bool {
-        let now = self.clock.now_nanos();
         let key = (client_id.to_string(), kind);
         let mut entry = self
             .buckets
             .entry(key)
-            .or_insert_with(|| Bucket::new(quota, now));
+            .or_insert_with(|| Bucket::new(quota, self.clock.now_nanos()));
+        let now = self.clock.now_nanos();
         entry.try_take(now)
     }
 

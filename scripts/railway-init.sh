@@ -22,11 +22,36 @@ railway --version || true
 
 echo "[railway-init] project=$PROJECT_NAME team=$TEAM_NAME volume=$VOLUME_NAME mount=$VOLUME_MOUNT"
 
+workspace_id="$(
+  railway whoami --json 2>/dev/null \
+    | python3 -c 'import json,sys,os
+target=os.environ["TEAM_NAME"]
+data=json.load(sys.stdin)
+for workspace in data.get("workspaces", []):
+    if workspace.get("name") == target or workspace.get("id") == target:
+        print(workspace["id"])
+        break
+' 2>/dev/null || true
+)"
+
+if [[ -z "$workspace_id" ]]; then
+  echo "[railway-init] Railway workspace '$TEAM_NAME' is not available to this login." >&2
+  echo "[railway-init] Create or join that workspace, then rerun this script." >&2
+  echo "[railway-init] Available workspaces:" >&2
+  railway whoami --json \
+    | python3 -c 'import json,sys
+for workspace in json.load(sys.stdin).get("workspaces", []):
+    print("  - {} ({})".format(workspace.get("name"), workspace.get("id")))
+' >&2
+  exit 1
+fi
+
 if [[ ! -f .railway/project.json ]] && [[ ! -d .railway ]]; then
   echo "[railway-init] linking/creating project..."
-  railway init --name "$PROJECT_NAME" || {
+  railway init --name "$PROJECT_NAME" --workspace "$workspace_id" || {
     echo "[railway-init] railway init failed — run \`railway link\` manually or check CLI version." >&2
     echo "Docs: https://docs.railway.app/reference/cli-api" >&2
+    exit 1
   }
 else
   echo "[railway-init] .railway/ already present — skipping init"
@@ -45,6 +70,9 @@ fi
 railway variables \
   --set "DATABASE_PATH=$VOLUME_MOUNT/app.db" \
   --set "RUST_LOG=info,server=debug" \
-  || echo "[railway-init] failed to set variables — check CLI auth and project link"
+  || {
+    echo "[railway-init] failed to set required variables — check CLI auth and project link" >&2
+    exit 1
+  }
 
 echo "[railway-init] done. Next: \`just railway-deploy\`"

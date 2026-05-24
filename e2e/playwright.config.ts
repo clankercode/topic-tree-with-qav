@@ -4,7 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Deterministic port for Playwright's webServer.
+// Deterministic port for Playwright's release-binary webServer, not Vite dev.
 //
 // scripts/serve-test.sh picks a random free port unless $PORT is set. We set
 // PORT explicitly here so Playwright's `baseURL` and `webServer` agree without

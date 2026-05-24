@@ -16,11 +16,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(3000);
-    let _db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "./dev.db".to_string());
+    let database_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "./dev.db".to_string());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
-    tracing::info!(%addr, "server listening");
+    tracing::info!(%addr, %database_path, "server listening");
 
     axum::serve(listener, server::app())
         .with_graceful_shutdown(shutdown_signal())

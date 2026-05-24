@@ -11,15 +11,16 @@ pids=()
 
 cleanup() {
   trap - INT TERM EXIT
-  for pid in "${pids[@]:-}"; do
-    if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
+  [[ ${#pids[@]} -eq 0 ]] && return
+  for pid in "${pids[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
       kill -TERM "$pid" 2>/dev/null || true
     fi
   done
   # give them a moment, then force
   sleep 1
-  for pid in "${pids[@]:-}"; do
-    if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
+  for pid in "${pids[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
       kill -KILL "$pid" 2>/dev/null || true
     fi
   done
