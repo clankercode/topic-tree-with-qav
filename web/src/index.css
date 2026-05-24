@@ -10,6 +10,12 @@
     --muted: 113 113 122;
     --accent: 99 102 241;
     --border: 228 228 231;
+    --background: var(--bg);
+    --foreground: var(--fg);
+    --primary: var(--accent);
+    --primary-fg: 255 255 255;
+    --success: 22 163 74;
+    --success-fg: 255 255 255;
   }
 
   .dark {
@@ -19,6 +25,9 @@
     --muted: 180 180 190;
     --accent: 129 140 248;
     --border: 39 39 42;
+    --primary-fg: 9 9 11;
+    --success: 74 222 128;
+    --success-fg: 9 9 11;
   }
 
   html,

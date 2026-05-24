@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useModalFocus } from "./useModalFocus";
 
 interface Props {
   open: boolean;
@@ -8,12 +9,16 @@ interface Props {
 
 export function AddTopicModal({ open, onClose, onAdd }: Props) {
   const [title, setTitle] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const titleId = useId();
+  const inputId = useId();
+
+  useModalFocus(open, dialogRef, onClose, inputRef);
 
   useEffect(() => {
     if (open) {
       setTitle("");
-      setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [open]);
 
@@ -27,14 +32,28 @@ export function AddTopicModal({ open, onClose, onAdd }: Props) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
       <div
-        className="bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded-lg p-6 w-80 space-y-4"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="w-full max-w-sm space-y-4 rounded-lg border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-6"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold">Add Topic</h2>
+        <h2 id={titleId} className="text-lg font-semibold">
+          Add Topic
+        </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <label htmlFor={inputId} className="sr-only">
+            Topic title
+          </label>
           <input
+            id={inputId}
             ref={inputRef}
             type="text"
             value={title}
@@ -47,14 +66,14 @@ export function AddTopicModal({ open, onClose, onAdd }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm rounded border border-[rgb(var(--border))] hover:bg-[rgb(var(--muted))/10]"
+              className="rounded border border-[rgb(var(--border))] px-4 py-2 text-sm hover:bg-[rgb(var(--muted)/0.12)]"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!title.trim()}
-              className="px-4 py-2 text-sm rounded bg-[rgb(var(--primary))] text-[rgb(var(--primary-fg))] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded bg-[rgb(var(--primary))] px-4 py-2 text-sm text-[rgb(var(--primary-fg))] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Add
             </button>
