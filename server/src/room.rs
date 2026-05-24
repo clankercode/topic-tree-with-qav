@@ -270,6 +270,13 @@ impl Room {
         g.presence.values().map(|p| p.to_proto_presence()).collect()
     }
 
+    /// True iff the guest currently has at least one live connection
+    /// (i.e. they have not been kicked since connecting).
+    pub fn has_presence(&self, guest_id: &str) -> bool {
+        let g = self.inner.lock().expect("room inner");
+        g.presence.contains_key(guest_id)
+    }
+
     pub fn topics(&self) -> Vec<Topic> {
         let g = self.inner.lock().expect("room inner");
         g.topics.values().cloned().collect()

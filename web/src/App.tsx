@@ -8,6 +8,7 @@ import { RoomDispatch } from "./routes/RoomDispatch";
 import { RoomEntry } from "./routes/RoomEntry";
 import { RoomsDashboard } from "./routes/RoomsDashboard";
 import { HostSession } from "./routes/HostSession";
+import { useSessionStore } from "./store";
 import { useThemeStore } from "./store/theme";
 import { useFollowHostStore } from "./store/followHost";
 
@@ -28,10 +29,16 @@ export function AppRoutes() {
 export function App() {
   const initTheme = useThemeStore((s) => s.init);
   const initFollowHost = useFollowHostStore((s) => s.init);
+  const tick = useSessionStore((s) => s.tick);
   useEffect(() => {
     initTheme();
     initFollowHost();
   }, [initTheme, initFollowHost]);
+
+  useEffect(() => {
+    const handle = window.setInterval(tick, 1000);
+    return () => window.clearInterval(handle);
+  }, [tick]);
 
   return (
     <BrowserRouter>

@@ -13,6 +13,7 @@ interface Props {
 
 export function ExcalidrawBoard({ board, isHost }: Props) {
   const versionRef = useRef<number>(board.sceneVersion ?? 0);
+  const boardIdRef = useRef<string>(board.id);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,7 +22,9 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
 
   useEffect(() => {
     const incoming = board.sceneVersion ?? 0;
-    if (incoming <= versionRef.current) return;
+    const boardChanged = boardIdRef.current !== board.id;
+    if (!boardChanged && incoming <= versionRef.current) return;
+    boardIdRef.current = board.id;
     versionRef.current = incoming;
     if (apiRef.current) {
       apiRef.current.updateScene({
@@ -29,7 +32,7 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
         appState: board.appState,
       });
     }
-  }, [board.sceneVersion, board.elements, board.appState]);
+  }, [board.id, board.sceneVersion, board.elements, board.appState]);
 
   const handleChange = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

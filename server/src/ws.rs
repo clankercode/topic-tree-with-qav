@@ -603,6 +603,22 @@ async fn handle_text(
             return Err(e.to_string());
         }
     };
+    if role == Role::Guest
+        && !matches!(&msg, ClientMsg::Hello { .. } | ClientMsg::Pong { .. })
+        && !room.has_presence(guest_id)
+    {
+        let _ = send(
+            sink,
+            &error_frame(
+                error_codes::UNAUTHORIZED,
+                "removed from room",
+                None,
+                room.current_seq(),
+            ),
+        )
+        .await;
+        return Err("kicked".into());
+    }
     #[allow(clippy::needless_borrow)]
     match msg {
         ClientMsg::Hello { id, .. } => {
@@ -1054,7 +1070,7 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
-            let (count, _) = match room.vote_question(&question_id, guest_id, vote) {
+            let (count, changed) = match room.vote_question(&question_id, guest_id, vote) {
                 Some(c) => c,
                 None => {
                     let _ = send(
@@ -1070,7 +1086,9 @@ async fn handle_text(
                     return Ok(());
                 }
             };
-            broadcast_vote_updated(room, &question_id, count, guest_id);
+            if changed {
+                broadcast_vote_updated(room, &question_id, count, guest_id);
+            }
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
