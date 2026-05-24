@@ -1,0 +1,12 @@
+{
+  "name": "topic-tree-with-qav",
+  "private": true,
+  "packageManager": "pnpm@10.25.0",
+  "scripts": {
+    "build": "just build",
+    "test": "just test",
+    "lint": "just lint",
+    "format": "just fmt"
+  },
+  "devDependencies": {}
+}

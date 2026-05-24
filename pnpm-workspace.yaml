@@ -1,0 +1,4 @@
+packages:
+  - web
+  - e2e
+  - docs

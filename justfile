@@ -4,6 +4,7 @@
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 set positional-arguments
+export PATH := env_var("HOME") + "/.local/bin:" + env_var("PATH")
 
 # threads cap: matches user system policy (see ~/CLAUDE.md "limit to 2 threads")
 CARGO_BUILD_JOBS := "2"
@@ -36,7 +37,7 @@ plan:
 
 # install all deps (web + cargo registry warmup)
 setup:
-    corepack enable
+    bash scripts/ensure-pnpm.sh
     pnpm install --frozen-lockfile
     cargo fetch --manifest-path server/Cargo.toml
 
