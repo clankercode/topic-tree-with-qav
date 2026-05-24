@@ -5,6 +5,7 @@ web/dist/*
 server/target/
 e2e/test-results/
 e2e/playwright-report/
+e2e/screenshots/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
 

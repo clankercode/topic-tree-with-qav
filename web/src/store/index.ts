@@ -112,7 +112,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       boards,
       focusedBoardId: snapshot.focusedBoardId,
       penBoards,
-      penInProgressStrokes: new Map(),
       hands: snapshot.hands as RaisedHand[],
       lastSeq: seq,
       pendingOps: new Map(),
@@ -145,13 +144,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         if (op.type === "add") {
           if (serverTopicIds.has(id)) {
             newPendingOps.delete(id);
-          } else {
-            const matchedServerTopic = topics.find(
-              (t) => t.title === op.title && t.parentId === op.parentId && t.id !== id
-            );
-            if (matchedServerTopic) {
-              newPendingOps.delete(id);
-            }
+            continue;
+          }
+          const matchedServerTopic = topics.find(
+            (t) => t.title === op.title && t.parentId === op.parentId && t.id !== id
+          );
+          if (matchedServerTopic) {
+            newPendingOps.delete(id);
+            continue;
+          }
+          const placeholder = state.topics.find((t) => t.id === id);
+          if (placeholder) {
+            finalTopics.push(placeholder);
           }
         }
       }
@@ -310,7 +314,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set((state) => {
       const newPenBoards = new Map(state.penBoards);
       newPenBoards.set(boardId, { strokes: [], texts: [] });
-      return { penBoards: newPenBoards };
+      const newInProgress = new Map(state.penInProgressStrokes);
+      for (const key of Array.from(newInProgress.keys())) {
+        if (key.startsWith(`${boardId}:`)) {
+          newInProgress.delete(key);
+        }
+      }
+      return {
+        penBoards: newPenBoards,
+        penInProgressStrokes: newInProgress,
+      };
     });
   },
   applyPenUndone(boardId, removedStrokeId, removedTextId) {
@@ -318,18 +331,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const newPenBoards = new Map(state.penBoards);
       const board = newPenBoards.get(boardId);
       if (!board) return state;
-      if (removedStrokeId) {
-        newPenBoards.set(boardId, {
-          ...board,
-          strokes: board.strokes.filter((s) => s.id !== removedStrokeId),
-        });
-      }
-      if (removedTextId) {
-        newPenBoards.set(boardId, {
-          ...board,
-          texts: board.texts.filter((t) => t.id !== removedTextId),
-        });
-      }
+      const next = {
+        strokes: removedStrokeId
+          ? board.strokes.filter((s) => s.id !== removedStrokeId)
+          : board.strokes,
+        texts: removedTextId
+          ? board.texts.filter((t) => t.id !== removedTextId)
+          : board.texts,
+      };
+      newPenBoards.set(boardId, next);
       return { penBoards: newPenBoards };
     });
   },

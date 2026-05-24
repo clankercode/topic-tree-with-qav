@@ -1,18 +1,28 @@
 import { expect, test } from "@playwright/test";
 
+async function addTopic(page: import("@playwright/test").Page, title: string) {
+  const treeSection = page
+    .locator("section")
+    .filter({ has: page.locator("text=Topics") });
+  await treeSection.getByRole("button", { name: "Add topic" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByPlaceholder("Topic title").fill(title);
+  await dialog.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(dialog).toBeHidden();
+}
+
 test.describe("optimistic updates", () => {
   test("host add topic appears immediately in UI", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Create room" }).click();
     await page.waitForURL(/\/r\/.*\/host/);
 
-    const treeSection = page.locator("section").filter({ has: page.locator("text=Topics") });
+    const treeSection = page
+      .locator("section")
+      .filter({ has: page.locator("text=Topics") });
     await expect(treeSection).toBeVisible();
 
-    page.on("dialog", (dialog) => dialog.accept("My Test Topic"));
-
-    await treeSection.getByRole("button", { name: "Add topic" }).click();
-
+    await addTopic(page, "My Test Topic");
     await expect(treeSection.getByText("My Test Topic")).toBeVisible();
   });
 
@@ -21,10 +31,11 @@ test.describe("optimistic updates", () => {
     await page.getByRole("button", { name: "Create room" }).click();
     await page.waitForURL(/\/r\/.*\/host/);
 
-    const treeSection = page.locator("section").filter({ has: page.locator("text=Topics") });
+    const treeSection = page
+      .locator("section")
+      .filter({ has: page.locator("text=Topics") });
 
-    page.on("dialog", (dialog) => dialog.accept("Original Title"));
-    await treeSection.getByRole("button", { name: "Add topic" }).click();
+    await addTopic(page, "Original Title");
     await expect(treeSection.getByText("Original Title")).toBeVisible();
 
     await treeSection.getByText("Original Title").hover();
@@ -43,18 +54,12 @@ test.describe("optimistic updates", () => {
     await page.getByRole("button", { name: "Create room" }).click();
     await page.waitForURL(/\/r\/.*\/host/);
 
-    const treeSection = page.locator("section").filter({ has: page.locator("text=Topics") });
+    const treeSection = page
+      .locator("section")
+      .filter({ has: page.locator("text=Topics") });
 
-    let dialogHandler: (dialog: import("@playwright/test").Dialog) => void;
-    dialogHandler = (dialog) => dialog.accept("First Topic");
-    page.on("dialog", dialogHandler);
-    await treeSection.getByRole("button", { name: "Add topic" }).click();
-    await page.off("dialog", dialogHandler);
-
-    dialogHandler = (dialog) => dialog.accept("Second Topic");
-    page.on("dialog", dialogHandler);
-    await treeSection.getByRole("button", { name: "Add topic" }).click();
-    await page.off("dialog", dialogHandler);
+    await addTopic(page, "First Topic");
+    await addTopic(page, "Second Topic");
 
     const topicList = treeSection.locator("ul");
     await expect(topicList.locator("li").first()).toContainText("First Topic");

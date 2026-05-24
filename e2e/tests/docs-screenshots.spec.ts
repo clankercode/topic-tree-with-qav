@@ -2,6 +2,14 @@ import { expect, test } from "@playwright/test";
 
 const OUT_DIR = "screenshots/_docs";
 
+async function addTopicViaModal(page: import("@playwright/test").Page, title: string) {
+  await page.getByRole("button", { name: "Add topic" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByPlaceholder("Topic title").fill(title);
+  await dialog.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(dialog).toBeHidden();
+}
+
 test.describe("docs screenshots", () => {
   test("empty room state", async ({ page }) => {
     await page.goto("/");
@@ -15,13 +23,8 @@ test.describe("docs screenshots", () => {
     await page.getByRole("button", { name: "Create room" }).click();
     await page.waitForURL(/\/r\/.*\/host/);
 
-    await page.getByRole("button", { name: "Add Topic" }).click();
-    await page.locator('input[placeholder*="topic" i], input[type="text"]').first().fill("Introduction");
-    await page.keyboard.press("Enter");
-
-    await page.getByRole("button", { name: "Add Topic" }).click();
-    await page.locator('input[placeholder*="topic" i], input[type="text"]').first().fill("Deep Dive");
-    await page.keyboard.press("Enter");
+    await addTopicViaModal(page, "Introduction");
+    await addTopicViaModal(page, "Deep Dive");
 
     await page.screenshot({ path: `${OUT_DIR}/mid-session-topics.png` });
   });
@@ -46,13 +49,13 @@ test.describe("docs screenshots", () => {
     await guestPage.getByRole("button", { name: "Join" }).click();
     await guestPage.waitForURL(`/r/${roomId}/guest`);
 
-    await guestPage.getByPlaceholder("Type your question").fill("What is the topic?");
+    await guestPage.getByPlaceholder("Ask a question...").fill("What is the topic?");
     await guestPage.getByRole("button", { name: "Submit" }).click();
-    await expect(guestPage.getByPlaceholder("Type your question")).toBeEnabled();
+    await expect(guestPage.getByPlaceholder("Ask a question...")).toBeEnabled();
 
-    await guestPage.getByPlaceholder("Type your question").fill("Can you elaborate?");
+    await guestPage.getByPlaceholder("Ask a question...").fill("Can you elaborate?");
     await guestPage.getByRole("button", { name: "Submit" }).click();
-    await expect(guestPage.getByPlaceholder("Type your question")).toBeEnabled();
+    await expect(guestPage.getByPlaceholder("Ask a question...")).toBeEnabled();
 
     const voteBtn = guestPage.getByRole("button", { name: /vote/i }).first();
     await voteBtn.click();
@@ -165,9 +168,7 @@ test.describe("docs screenshots", () => {
     await page.getByRole("button", { name: "Create room" }).click();
     await page.waitForURL(/\/r\/.*\/host/);
 
-    await page.getByRole("button", { name: "Add Topic" }).click();
-    await page.locator('input[placeholder*="topic" i], input[type="text"]').first().fill("Dark Topic");
-    await page.keyboard.press("Enter");
+    await addTopicViaModal(page, "Dark Topic");
 
     await page.screenshot({ path: `${OUT_DIR}/dark-mid-session.png` });
   });
@@ -208,9 +209,9 @@ test.describe("docs screenshots", () => {
     await guestPage.getByRole("button", { name: "Join" }).click();
     await guestPage.waitForURL(`/r/${roomId}/guest`);
 
-    await guestPage.getByPlaceholder("Type your question").fill("Dark question");
+    await guestPage.getByPlaceholder("Ask a question...").fill("Dark question");
     await guestPage.getByRole("button", { name: "Submit" }).click();
-    await expect(guestPage.getByPlaceholder("Type your question")).toBeEnabled();
+    await expect(guestPage.getByPlaceholder("Ask a question...")).toBeEnabled();
 
     await hostPage.screenshot({ path: `${OUT_DIR}/dark-qa-active.png` });
 

@@ -95,46 +95,38 @@ export function HostSession() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       if (record?.role !== "admin") return;
 
-      const pendingTopics = topics
-        .filter((t) => t.status === "pending")
-        .sort((a, b) => a.ord - b.ord);
-
-      if (pendingTopics.length === 0) return;
+      const orderedTopics = [...topics].sort((a, b) => a.ord - b.ord);
+      const pendingTopics = orderedTopics.filter((t) => t.status === "pending");
 
       if (e.key === "j") {
+        if (pendingTopics.length === 0) return;
         e.preventDefault();
-        // Find next pending topic after current active
         const currentIndex = activeTopicId
           ? pendingTopics.findIndex((t) => t.id === activeTopicId)
           : -1;
         const nextIndex = currentIndex + 1;
         if (nextIndex < pendingTopics.length) {
-          // Mark current as done
           if (activeTopicId) {
             sendWsMsg({ v: 1, type: "MarkTopicDone", topicId: activeTopicId, done: true });
           }
-          // Set next as active
           sendWsMsg({ v: 1, type: "SetActiveTopic", topicId: pendingTopics[nextIndex].id });
         }
       }
 
       if (e.key === "k") {
         e.preventDefault();
-        // Find previous pending topic before current active
         const currentIndex = activeTopicId
-          ? pendingTopics.findIndex((t) => t.id === activeTopicId)
-          : 0;
-        const prevIndex = currentIndex - 1;
-        if (prevIndex >= 0) {
-          // Unmark current as done
-          if (activeTopicId) {
-            sendWsMsg({ v: 1, type: "MarkTopicDone", topicId: activeTopicId, done: false });
-          }
-          // Set previous as active
-          sendWsMsg({ v: 1, type: "SetActiveTopic", topicId: pendingTopics[prevIndex].id });
-        }
+          ? orderedTopics.findIndex((t) => t.id === activeTopicId)
+          : -1;
+        if (currentIndex <= 0) return;
+        sendWsMsg({
+          v: 1,
+          type: "SetActiveTopic",
+          topicId: orderedTopics[currentIndex - 1].id,
+        });
       }
     }
 

@@ -40,9 +40,14 @@ just db-dump backup.tar.gz
 
 ### Restore
 
+Stop the server, replace the live database with the backup's `app.db`, and
+restart. Migrations run automatically on startup.
+
 ```bash
+just serve-stop  # or whatever stops your running binary
 tar -xzf backup.tar.gz
-sqlite3 app.db < schema.sql  # requires extracting and running migrations
+mv app.db "$DATABASE_PATH"
+just serve
 ```
 
 ## Docker

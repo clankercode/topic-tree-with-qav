@@ -58,7 +58,7 @@ The production URL is assigned by Railway. Check the Railway dashboard or run `r
 
 ## Updating
 
-Push a new commit to `main` and run `just railway-deploy`. Railway automatically deploys the new image on subsequent runs of `railway up`.
+Deploys are manual. After pushing a commit to `main`, run `just railway-deploy` from a checkout that has `railway` CLI configured. There is no GitHub Actions workflow that publishes to Railway on push today.
 
 ## Volume Persistence
 

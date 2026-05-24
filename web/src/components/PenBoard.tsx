@@ -50,9 +50,15 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
   const handleStrokeBegin = useCallback(
     (_bid: string, strokeId: string, x: number, y: number, pressure: number) => {
       const key = `${boardId}:${strokeId}`;
-      const newInProgress = new Map(penInProgressStrokes);
-      newInProgress.set(key, { color, size, points: [[x, y, pressure] as [number, number, number]] });
-      useSessionStore.setState({ penInProgressStrokes: newInProgress });
+      useSessionStore.setState((state) => {
+        const next = new Map(state.penInProgressStrokes);
+        next.set(key, {
+          color,
+          size,
+          points: [[x, y, pressure] as [number, number, number]],
+        });
+        return { penInProgressStrokes: next };
+      });
       sendWsMsg({
         v: 1,
         type: "PenStrokeBegin",
@@ -62,27 +68,29 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
         size,
       });
     },
-    [boardId, penInProgressStrokes, color, size],
+    [boardId, color, size],
   );
 
   const handleStrokeAppend = useCallback(
     (_bid: string, strokeId: string, x: number, y: number, pressure: number) => {
       const key = `${boardId}:${strokeId}`;
-      const stroke = penInProgressStrokes.get(key);
-      if (!stroke) return;
-      const newPoints: [number, number, number][] = [[x, y, pressure]];
-      const newInProgress = new Map(penInProgressStrokes);
-      newInProgress.set(key, { ...stroke, points: [...stroke.points, ...newPoints] });
-      useSessionStore.setState({ penInProgressStrokes: newInProgress });
+      const newPoint: [number, number, number] = [x, y, pressure];
+      useSessionStore.setState((state) => {
+        const existing = state.penInProgressStrokes.get(key);
+        if (!existing) return {};
+        const next = new Map(state.penInProgressStrokes);
+        next.set(key, { ...existing, points: [...existing.points, newPoint] });
+        return { penInProgressStrokes: next };
+      });
       sendWsMsg({
         v: 1,
         type: "PenStrokeAppend",
         boardId,
         strokeId,
-        points: newPoints,
+        points: [newPoint],
       });
     },
-    [boardId, penInProgressStrokes],
+    [boardId],
   );
 
   const handleStrokeEnd = useCallback(
