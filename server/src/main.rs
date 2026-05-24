@@ -30,6 +30,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let state = server::AppState::new(db, metrics);
 
+    let _excalidraw_reset_task = server::ws::spawn_excalidraw_scene_reset_task(state.clone());
+
     axum::serve(listener, server::app_with_state(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;

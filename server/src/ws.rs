@@ -2231,6 +2231,32 @@ async fn send(
     sink.send(Message::Text(s)).await.map_err(|e| e.to_string())
 }
 
+const EXCALIDRAW_SCENE_RESET_INTERVAL: Duration = Duration::from_secs(60);
+
+pub fn spawn_excalidraw_scene_reset_task(state: AppState) -> task::JoinHandle<()> {
+    task::spawn(async move {
+        let mut tick_interval = tokio::time::interval(EXCALIDRAW_SCENE_RESET_INTERVAL);
+        tick_interval.tick().await;
+        loop {
+            tick_interval.tick().await;
+            let rooms: Vec<Arc<Room>> = state.rooms.iter().collect();
+            for room in rooms {
+                let scenes_to_reset = room.get_excalidraw_scenes_needing_reset();
+                for scene in scenes_to_reset {
+                    broadcast_excalidraw_scene_reset(
+                        &room,
+                        &scene.board_id,
+                        scene.scene_version,
+                        &scene.elements,
+                        &scene.app_state,
+                    );
+                    room.mark_excalidraw_scene_broadcast(&scene.board_id, scene.scene_version);
+                }
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     // The full ws lifecycle is exercised by integration tests in

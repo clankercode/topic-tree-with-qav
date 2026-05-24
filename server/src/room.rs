@@ -117,6 +117,7 @@ struct RoomInner {
     vote_index: HashMap<QuestionId, HashSet<GuestId>>,
     boards: BTreeMap<BoardId, Board>,
     excalidraw_scenes: BTreeMap<BoardId, ExcalidrawScene>,
+    excalidraw_last_broadcast_version: HashMap<BoardId, u64>,
     focused_board_id: Option<BoardId>,
     hands: BTreeMap<GuestId, RaisedHand>,
     pen_boards: HashMap<BoardId, PenBoardState>,
@@ -138,6 +139,7 @@ impl Room {
                 vote_index: HashMap::new(),
                 boards: BTreeMap::new(),
                 excalidraw_scenes: BTreeMap::new(),
+                excalidraw_last_broadcast_version: HashMap::new(),
                 focused_board_id: None,
                 hands: BTreeMap::new(),
                 pen_boards: HashMap::new(),
@@ -590,6 +592,28 @@ impl Room {
         g.excalidraw_scenes.get(board_id).cloned()
     }
 
+    pub fn get_excalidraw_scenes_needing_reset(&self) -> Vec<ExcalidrawScene> {
+        let g = self.inner.lock().expect("room inner");
+        g.excalidraw_scenes
+            .iter()
+            .filter(|(board_id, scene)| {
+                let last_version = g
+                    .excalidraw_last_broadcast_version
+                    .get(board_id as &str)
+                    .copied()
+                    .unwrap_or(0);
+                scene.scene_version > last_version
+            })
+            .map(|(_, scene)| scene.clone())
+            .collect()
+    }
+
+    pub fn mark_excalidraw_scene_broadcast(&self, board_id: &str, scene_version: u64) {
+        let mut g = self.inner.lock().expect("room inner");
+        g.excalidraw_last_broadcast_version
+            .insert(board_id.to_string(), scene_version);
+    }
+
     pub fn get_pen_board_state(&self, board_id: &str) -> Option<PenBoardState> {
         let g = self.inner.lock().expect("room inner");
         g.pen_boards.get(board_id).cloned()
@@ -939,6 +963,10 @@ impl RoomRegistry {
 
     pub fn is_empty(&self) -> bool {
         self.rooms.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = Arc<Room>> + '_ {
+        self.rooms.iter().map(|entry| entry.value().clone())
     }
 }
 
