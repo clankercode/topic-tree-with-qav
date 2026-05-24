@@ -28,6 +28,7 @@ export interface SessionState {
   penInProgressStrokes: Map<string, { color: string; size: number; points: [number, number, number][] }>;
   lastSeq: bigint | null;
   pendingOps: Map<string, PendingOp>;
+  kicked: boolean;
   applyWelcome(snapshot: RoomSnapshot, seq: bigint): void;
   applyPresence(guests: Guest[], seq: bigint): void;
   applyTopicTree(topics: Topic[], activeTopicId: string | null, seq: bigint): void;
@@ -50,6 +51,7 @@ export interface SessionState {
   applyPenUndone(boardId: string, removedStrokeId: string | null, removedTextId: string | null): void;
   setLastSeq(seq: bigint): void;
   reset(): void;
+  setKicked(): void;
   optimisticAddTopic(tempId: string, parentId: string | null, title: string, afterId: string | null): string;
   optimisticRenameTopic(topicId: string, title: string): void;
   optimisticMoveTopic(topicId: string, newParentId: string | null, afterId: string | null): void;
@@ -72,6 +74,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   penInProgressStrokes: new Map(),
   lastSeq: null,
   pendingOps: new Map(),
+  kicked: false,
   applyWelcome(snapshot, seq) {
     set({
       room: snapshot.room,
@@ -325,7 +328,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       penInProgressStrokes: new Map(),
       lastSeq: null,
       pendingOps: new Map(),
+      kicked: false,
     });
+  },
+  setKicked() {
+    set({ kicked: true });
   },
   optimisticAddTopic(tempId, parentId, title, afterId) {
     set((state) => {

@@ -66,6 +66,34 @@ impl Db {
     pub fn get(&self) -> Result<DbConn, DbError> {
         Ok(self.pool.get()?)
     }
+
+    pub fn upsert_moderation(&self, room_id: &str, guest_id: &str, kicked: bool, muted: bool) -> Result<(), DbError> {
+        let conn = self.get()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        conn.execute(
+            "INSERT INTO moderation (room_id, guest_id, kicked, muted, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT (room_id, guest_id) DO UPDATE SET kicked=?3, muted=?4, updated_at=?5",
+            rusqlite::params![room_id, guest_id, kicked as i32, muted as i32, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_moderation(&self, room_id: &str, guest_id: &str) -> Result<Option<(bool, bool)>, DbError> {
+        let conn = self.get()?;
+        let result = conn.query_row(
+            "SELECT kicked, muted FROM moderation WHERE room_id = ?1 AND guest_id = ?2",
+            rusqlite::params![room_id, guest_id],
+            |r| Ok((r.get::<_, i32>(0)? != 0, r.get::<_, i32>(1)? != 0)),
+        );
+        match result {
+            Ok((k, m)) => Ok(Some((k, m))),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
 }
 
 fn configure_connection(conn: &mut Connection) -> rusqlite::Result<()> {

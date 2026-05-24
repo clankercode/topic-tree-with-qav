@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { ToastContainer } from "./components/ToastContainer";
 import { About } from "./routes/About";
 import { GuestSession } from "./routes/GuestSession";
 import { Landing } from "./routes/Landing";
@@ -25,6 +26,7 @@ export function App() {
   return (
     <BrowserRouter>
       <AppRoutes />
+      <ToastContainer />
     </BrowserRouter>
   );
 }

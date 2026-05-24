@@ -8,6 +8,8 @@ import { getRoom, type RoomRecord } from "../lib/idb";
 import { setWsClient } from "../ws/manager";
 import { WsClient } from "../ws/client";
 import type { SortMode } from "../components/SortToggle";
+import { useSessionStore } from "../store";
+import { HandMetal } from "lucide-react";
 
 export function GuestSession() {
   const { roomId } = useParams();
@@ -15,6 +17,7 @@ export function GuestSession() {
     undefined,
   );
   const [sortMode, setSortMode] = useState<SortMode>("chronological");
+  const kicked = useSessionStore((s) => s.kicked);
 
   useEffect(() => {
     if (!roomId) {
@@ -75,6 +78,30 @@ export function GuestSession() {
 
   if (!record || !roomId) {
     return <Navigate to="/" replace />;
+  }
+
+  if (kicked) {
+    return (
+      <main className="min-h-full flex items-center justify-center p-8">
+        <div className="text-center space-y-4">
+          <div className="flex justify-center">
+            <HandMetal className="h-12 w-12 text-[rgb(var(--muted))]" />
+          </div>
+          <h1 className="text-2xl font-semibold">Removed by Host</h1>
+          <p className="text-[rgb(var(--muted))]">
+            You have been removed from this room.
+          </p>
+          <button
+            onClick={() => {
+              window.location.href = "/";
+            }}
+            className="rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-4 py-2 text-sm hover:bg-[rgb(var(--border))]"
+          >
+            Go to Home
+          </button>
+        </div>
+      </main>
+    );
   }
 
   return (

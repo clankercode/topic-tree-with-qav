@@ -133,6 +133,7 @@ export type ServerMsg =
   | (Envelope & { type: "PenUndone"; boardId: string; removedStrokeId: string | null; removedTextId: string | null })
   | (Envelope & { type: "CursorMoved"; boardId: string; clientId: string; guestId: string; displayName: string; x: number; y: number })
   | (Envelope & { type: "Clicked"; boardId: string; clientId: string; guestId: string; displayName: string; x: number; y: number })
+  | (Envelope & { type: "KickNotice" })
   | (Envelope & { type: string; [k: string]: unknown });
 
 export interface ClientHello {
@@ -148,4 +149,6 @@ export type ClientMsg =
   | ClientHello
   | { v: 1; type: "Pong" }
   | { v: 1; type: "GetSnapshot"; since?: number }
+  | { v: 1; id?: string; type: "KickGuest"; guestId: string }
+  | { v: 1; id?: string; type: "MuteGuest"; guestId: string; muted: boolean }
   | { v: 1; id?: string; type: string; [k: string]: unknown };

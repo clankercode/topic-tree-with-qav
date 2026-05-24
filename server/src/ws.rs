@@ -306,7 +306,91 @@ async fn run_connection(
         }
     };
 
-    // ── 4. Register with the room hub + send Welcome + broadcast presence. ──
+    // ── 4. Check moderation: kicked guests are rejected at Hello. ──
+    if role == Role::Guest {
+        let kicked: bool = {
+            let db = state.db.clone();
+            let rid = rid.clone();
+            let gid = guest_id.clone();
+            let inner = task::spawn_blocking(move || {
+                let conn = db
+                    .get()
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                conn.query_row(
+                    "SELECT kicked FROM moderation WHERE room_id = ?1 AND guest_id = ?2",
+                    rusqlite::params![rid, gid],
+                    |r| r.get::<_, i32>(0),
+                )
+                .map(|k| k != 0)
+                .or_else(|e| {
+                    if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
+                        Ok(false)
+                    } else {
+                        Err(e)
+                    }
+                })
+            })
+            .await
+            .map_err(|e| ConnError::Io(e.to_string()))?;
+            match inner {
+                Ok(k) => k,
+                Err(e) => return Err(ConnError::Io(e.to_string())),
+            }
+        };
+        if kicked {
+            let kick_notice = ServerMsg::KickNotice {
+                v: PROTOCOL_VERSION,
+                ts: now_ms(),
+            };
+            let _ = send(&mut sink, &kick_notice).await;
+            let _ = send(
+                &mut sink,
+                &error_frame(
+                    error_codes::UNAUTHORIZED,
+                    "removed by host",
+                    hello_id,
+                    0,
+                ),
+            )
+            .await;
+            return Err(ConnError::Protocol("kicked".into()));
+        }
+    }
+
+    // ── 5. Load muted state from DB for guests. ──
+    let initial_muted: bool = if role == Role::Guest {
+        let db = state.db.clone();
+        let rid = rid.clone();
+        let gid = guest_id.clone();
+        let inner = task::spawn_blocking(move || {
+            let conn = db
+                .get()
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+            conn.query_row(
+                "SELECT muted FROM moderation WHERE room_id = ?1 AND guest_id = ?2",
+                rusqlite::params![rid, gid],
+                |r| r.get::<_, i32>(0),
+            )
+            .map(|m| m != 0)
+            .or_else(|e| {
+                if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
+                    Ok(false)
+                } else {
+                    Err(e)
+                }
+            })
+        })
+        .await
+        .map_err(|e| ConnError::Io(e.to_string()))?;
+        match inner {
+            Ok(m) => m,
+            Err(e) => return Err(ConnError::Io(e.to_string())),
+        }
+    } else {
+        false
+    };
+
+    // ── 6. Register with the room hub + send Welcome + broadcast presence. ──
     let room = state.rooms.get_or_create(&rid, &title, created_at);
     let client_id = Uuid::new_v4().to_string();
     let effective_name = if display_name.is_empty() {
@@ -322,6 +406,7 @@ async fn run_connection(
         client_id.clone(),
         effective_name.clone(),
         now_ms(),
+        initial_muted,
     );
 
     let you = You {
@@ -356,7 +441,7 @@ async fn run_connection(
         broadcast_presence(&room);
     }
 
-    // ── 5. Main loop. ──
+    // ── 7. Main loop. ──
     let result = main_loop(
         &mut sink,
         &mut stream,
@@ -365,10 +450,11 @@ async fn run_connection(
         &client_id,
         &guest_id,
         role,
+        &state,
     )
     .await;
 
-    // ── 6. Cleanup. ──
+    // ── 8. Cleanup. ──
     let now_disconnected = room.remove_client(&guest_id, &client_id);
     if now_disconnected {
         broadcast_presence(&room);
@@ -384,6 +470,7 @@ async fn main_loop(
     client_id: &str,
     guest_id: &str,
     role: Role,
+    state: &AppState,
 ) -> Result<(), ConnError> {
     let mut hb = interval(HEARTBEAT_INTERVAL);
     hb.tick().await; // first tick is immediate; skip it
@@ -402,7 +489,7 @@ async fn main_loop(
                 };
                 match frame {
                     Message::Text(t) => {
-                        if let Err(e) = handle_text(sink, t, room, client_id, guest_id, role).await {
+                        if let Err(e) = handle_text(sink, t, room, client_id, guest_id, role, state).await {
                             tracing::debug!(error = %e, "handle_text failed");
                         }
                     }
@@ -456,6 +543,7 @@ async fn handle_text(
     client_id: &str,
     guest_id: &str,
     role: Role,
+    state: &AppState,
 ) -> Result<(), String> {
     let msg: ClientMsg = match serde_json::from_str(&text) {
         Ok(m) => m,
@@ -793,6 +881,19 @@ async fn handle_text(
             anonymous,
             ..
         } => {
+            if room.is_muted(guest_id) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::MUTED,
+                        "you are muted and cannot submit questions",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
             let text = text.trim().to_string();
             if text.is_empty() || text.len() > 500 {
                 let _ = send(
@@ -845,6 +946,19 @@ async fn handle_text(
             vote,
             ..
         } => {
+            if room.is_muted(guest_id) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::MUTED,
+                        "you are muted and cannot vote",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
             let (count, _) = match room.vote_question(&question_id, guest_id, vote) {
                 Some(c) => c,
                 None => {
@@ -942,6 +1056,76 @@ async fn handle_text(
             }
             room.delete_question(&question_id);
             broadcast_question_deleted(room, &question_id);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::KickGuest {
+            id,
+            guest_id: target_guest_id,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let room_id = room.id.clone();
+            let target = target_guest_id.clone();
+            let db = state.db.clone();
+            task::spawn_blocking(move || {
+                if let Err(e) = db.upsert_moderation(&room_id, &target, true, false) {
+                    tracing::error!(error = %e, "failed to persist kick");
+                }
+            });
+            room.kick_guest(&target_guest_id);
+            broadcast_presence(room);
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
+        ClientMsg::MuteGuest {
+            id,
+            guest_id: target_guest_id,
+            muted,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            let room_id = room.id.clone();
+            let target = target_guest_id.clone();
+            let db = state.db.clone();
+            let muted_flag = muted;
+            task::spawn_blocking(move || {
+                if let Err(e) = db.upsert_moderation(&room_id, &target, false, muted_flag) {
+                    tracing::error!(error = %e, "failed to persist mute");
+                }
+            });
+            room.set_muted(&target_guest_id, muted);
+            broadcast_presence(room);
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,

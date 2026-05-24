@@ -1,8 +1,10 @@
 import { useSessionStore } from "../store";
+import { useToastStore } from "../store/toast";
 import type { ServerMsg } from "./types";
 
 export function applyServerMessage(msg: ServerMsg): void {
   const store = useSessionStore.getState();
+  const toastStore = useToastStore.getState();
   switch (msg.type) {
     case "Welcome":
       store.applyWelcome(
@@ -104,6 +106,20 @@ export function applyServerMessage(msg: ServerMsg): void {
     case "PenUndone": {
       const m = msg as Extract<ServerMsg, { type: "PenUndone" }>;
       store.applyPenUndone(m.boardId, m.removedStrokeId, m.removedTextId);
+      return;
+    }
+    case "KickNotice": {
+      store.setKicked();
+      return;
+    }
+    case "Error": {
+      const m = msg as Extract<ServerMsg, { type: "Error" }>;
+      if (m.code === "muted") {
+        toastStore.addToast(m.message, "error");
+      } else if (m.code === "unauthorized" && m.message.includes("removed")) {
+        store.setKicked();
+      }
+      store.setLastSeq(msg.seq);
       return;
     }
     default:
