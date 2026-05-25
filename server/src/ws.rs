@@ -33,15 +33,12 @@ use uuid::Uuid;
 
 use crate::api::now_ms;
 use crate::auth::{is_valid_display_name, is_valid_guest_id, verify_admin_token};
-use crate::db::WriteOpKind;
 use crate::intents::helpers::{
-    broadcast_clicked, broadcast_cursor_moved, broadcast_excalidraw_scene_reset,
-    broadcast_focused_board_changed, broadcast_presence, enqueue_write, error_frame, send,
-    IntentError, SessionCtx,
+    broadcast_excalidraw_scene_reset, broadcast_presence, error_frame, send, IntentError,
+    SessionCtx,
 };
 use crate::metrics::SharedMetrics;
 use crate::proto::{error_codes, ClientMsg, Role, ServerMsg, You, PROTOCOL_VERSION};
-use crate::rate_limit::Quota;
 use crate::room::Room;
 use crate::state::{global_rate_limiter, AppState};
 
@@ -654,79 +651,23 @@ async fn handle_text(
             .await;
             Ok(())
         }
-        ClientMsg::SetDisplayName { id, name, .. } => {
-            let trimmed = name.trim().to_string();
-            if trimmed.is_empty() || trimmed.len() > 64 {
-                let _ = send(
+        ClientMsg::SetDisplayName { .. }
+        | ClientMsg::GetSnapshot { .. }
+        | ClientMsg::SetFocusedBoard { .. }
+        | ClientMsg::Cursor { .. }
+        | ClientMsg::Click { .. } => {
+            let result = {
+                let mut ctx = SessionCtx {
                     sink,
-                    &error_frame(
-                        error_codes::BAD_REQUEST,
-                        "name must be 1..=64 chars",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            if room.set_display_name(guest_id, trimmed) {
-                broadcast_presence(room);
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::GetSnapshot { id, .. } => {
-            // Without this gate a guest can spam GetSnapshot and force
-            // the server to render the room's full state on each call.
-            // The 5/sec cap mirrors the "all others" 20 msg/s catch-all
-            // budget in protocol.md §rate-limits but is tighter because
-            // each snapshot is much more expensive than a typical intent.
-            if !global_rate_limiter().check(client_id, "GetSnapshot", Quota::per_second(5.0)) {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::RATE_LIMIT,
-                        "snapshot rate exceeded",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            let snap = room.snapshot_for(
-                You {
-                    client_id: client_id.to_string(),
+                    room,
+                    state,
+                    client_id,
+                    guest_id,
                     role,
-                    guest_id: guest_id.to_string(),
-                },
-                guest_id,
-            );
-            let msg = ServerMsg::RoomSnapshot {
-                v: PROTOCOL_VERSION,
-                ts: now_ms(),
-                seq: room.current_seq(),
-                snapshot: snap,
-            };
-            send(sink, &msg).await?;
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
                 };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
+                crate::intents::presence::handle(&mut ctx, msg).await
+            };
+            handle_intent_result(sink, result).await
         }
         ClientMsg::Pong { .. } => Ok(()),
         ClientMsg::AddTopic { .. }
@@ -798,48 +739,6 @@ async fn handle_text(
             };
             handle_intent_result(sink, result).await
         }
-        ClientMsg::SetFocusedBoard { id, board_id, .. } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            if !room.board_exists(&board_id) {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::BAD_REQUEST,
-                        "board not found",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            room.set_focused_board(board_id.clone());
-            broadcast_focused_board_changed(room, &board_id);
-            enqueue_write(
-                state,
-                room,
-                WriteOpKind::SetFocusedBoard {
-                    board_id: Some(board_id.clone()),
-                },
-            );
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
         ClientMsg::RaiseHand { .. }
         | ClientMsg::LowerHand { .. }
         | ClientMsg::CallOnHand { .. }
@@ -877,70 +776,6 @@ async fn handle_text(
             };
             handle_intent_result(sink, result).await
         }
-        ClientMsg::Cursor {
-            id, board_id, x, y, ..
-        } => {
-            if !global_rate_limiter().check(client_id, "Cursor", Quota::per_second(30.0)) {
-                return Ok(());
-            }
-            if !room.board_exists(&board_id) {
-                return Ok(());
-            }
-            let display_name = room
-                .presence()
-                .iter()
-                .find(|p| p.guest_id == guest_id)
-                .map(|p| p.display_name.clone())
-                .unwrap_or_default();
-            broadcast_cursor_moved(room, &board_id, client_id, guest_id, &display_name, x, y);
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::Click {
-            id, board_id, x, y, ..
-        } => {
-            if !global_rate_limiter().check(client_id, "Click", Quota::per_second(5.0)) {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::RATE_LIMIT,
-                        "click rate exceeded",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            if !room.board_exists(&board_id) {
-                return Ok(());
-            }
-            let display_name = room
-                .presence()
-                .iter()
-                .find(|p| p.guest_id == guest_id)
-                .map(|p| p.display_name.clone())
-                .unwrap_or_default();
-            broadcast_clicked(room, &board_id, client_id, guest_id, &display_name, x, y);
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
     }
 }
 
@@ -953,8 +788,9 @@ async fn handle_intent_result(
         Err(err) => {
             let should_close = err.should_close();
             let err_text = err.to_string();
-            let msg = err.into_server_msg();
-            send(sink, &msg).await?;
+            if let Some(msg) = err.into_server_msg() {
+                send(sink, &msg).await?;
+            }
             if should_close {
                 Err(err_text)
             } else {

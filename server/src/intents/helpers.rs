@@ -25,8 +25,13 @@ pub(crate) struct SessionCtx<'a> {
 
 #[derive(Debug)]
 pub(crate) struct IntentError {
-    msg: Box<ServerMsg>,
-    close: bool,
+    kind: IntentErrorKind,
+}
+
+#[derive(Debug)]
+enum IntentErrorKind {
+    Client { msg: Box<ServerMsg>, close: bool },
+    Io(String),
 }
 
 impl IntentError {
@@ -37,30 +42,47 @@ impl IntentError {
         seq: u64,
     ) -> Self {
         Self {
-            msg: Box::new(error_frame(
-                code,
-                &message.into(),
-                ref_id.map(str::to_string),
-                seq,
-            )),
-            close: false,
+            kind: IntentErrorKind::Client {
+                msg: Box::new(error_frame(
+                    code,
+                    &message.into(),
+                    ref_id.map(str::to_string),
+                    seq,
+                )),
+                close: false,
+            },
+        }
+    }
+
+    pub(crate) fn io(message: impl Into<String>) -> Self {
+        Self {
+            kind: IntentErrorKind::Io(message.into()),
         }
     }
 
     pub(crate) fn should_close(&self) -> bool {
-        self.close
+        match &self.kind {
+            IntentErrorKind::Client { close, .. } => *close,
+            IntentErrorKind::Io(_) => false,
+        }
     }
 
-    pub(crate) fn into_server_msg(self) -> ServerMsg {
-        *self.msg
+    pub(crate) fn into_server_msg(self) -> Option<ServerMsg> {
+        match self.kind {
+            IntentErrorKind::Client { msg, .. } => Some(*msg),
+            IntentErrorKind::Io(_) => None,
+        }
     }
 }
 
 impl fmt::Display for IntentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &*self.msg {
-            ServerMsg::Error { code, message, .. } => write!(f, "{code}: {message}"),
-            _ => write!(f, "intent error"),
+        match &self.kind {
+            IntentErrorKind::Client { msg, .. } => match &**msg {
+                ServerMsg::Error { code, message, .. } => write!(f, "{code}: {message}"),
+                _ => write!(f, "intent error"),
+            },
+            IntentErrorKind::Io(message) => write!(f, "{message}"),
         }
     }
 }
