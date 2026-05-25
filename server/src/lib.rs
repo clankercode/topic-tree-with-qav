@@ -5,6 +5,7 @@ pub mod api;
 pub mod auth;
 pub mod db;
 pub mod http;
+pub mod intents;
 pub mod metrics;
 pub mod proto;
 pub mod rate_limit;
