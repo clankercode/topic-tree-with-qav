@@ -1,0 +1,63 @@
+---
+description: Feature development workflow — worktree isolation, review-and-fix, merge back to master
+alwaysApply: true
+---
+
+# Feature development workflow
+
+When planning and implementing a **new feature** (not small fixes or one-off edits in the main checkout):
+
+## 1. Isolate in a worktree
+
+Create a dedicated branch and worktree under `./.worktrees/` before writing code:
+
+```bash
+git worktree add .worktrees/<feature-slug> -b feat/<feature-slug>
+cd .worktrees/<feature-slug>
+```
+
+- Use a short, descriptive slug (e.g. `raise-hand`, `room-delete`).
+- Do all feature work in that worktree — not in the repo root checkout on `master`.
+- `wt` is fine if available; location must still be under `.worktrees/`.
+
+## 2. Implement with TDD
+
+Follow repo norms: plan tree if applicable, red → green → refactor, `just test` for the touched scope.
+
+## 3. Review before “done”
+
+Do **not** treat the feature as complete until `review-and-fix` passes:
+
+- Run the `review-and-fix` skill against the feature’s acceptance criteria.
+- Loop until review returns **PASS**, or stop only for deep/spec blockers that need user input.
+
+Phase-boundary reviews from `CLAUDE.md` (four reviewers + merge punch list) still apply at phase ends; `review-and-fix` is the minimum gate before landing any feature branch.
+
+## 4. Land and clean up
+
+After review passes:
+
+1. **Commit** all work on the feature branch (only when the user asks, or as part of an explicit land step).
+2. **Merge back to `master`** from the main checkout (rebase merge preferred if that is the repo habit).
+3. **Remove the worktree** and delete the feature branch once merged:
+
+```bash
+cd /path/to/repo/root   # main checkout on master
+git merge feat/<feature-slug>
+git worktree remove .worktrees/<feature-slug>
+git branch -d feat/<feature-slug>
+```
+
+Do not leave stale worktrees or long-lived feature branches after a feature is landed.
+
+## 5. Deploy (default)
+
+After landing on `master`, **deploy automatically** from the main checkout unless the user has said not to deploy (for this feature, this session, or in general):
+
+```bash
+just railway-deploy
+```
+
+- Run from the repo root on `master`, after the merge is complete.
+- Skip deploy only when the user explicitly opts out (e.g. “don’t deploy”, “local only”, “hold deploy”).
+- If deploy fails, report the failure; do not treat the feature as fully shipped until deploy succeeds or the user accepts skipping it.
