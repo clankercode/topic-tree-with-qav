@@ -9,6 +9,7 @@ import { PresenceMenu } from "../components/PresenceMenu";
 import { QAPanel } from "../components/QAPanel";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { TopicTree } from "../components/TopicTree";
+import { HandsQueue } from "../components/HandsQueue";
 import { getRoom, type RoomRecord } from "../lib/idb";
 import { setWsClient, sendWsMsg } from "../ws/manager";
 import { useSessionStore } from "../store";
@@ -290,7 +291,15 @@ export function HostSession() {
           </header>
           <AdminBanner joinUrl={joinUrl} adminUrl={adminUrl} />
           <div className="grid gap-4 lg:grid-cols-2">
-            <TopicTree />
+            <div className="flex flex-col gap-4">
+              <TopicTree />
+              <section
+                aria-label="Raised hands queue"
+                className="rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-4"
+              >
+                <HandsQueue />
+              </section>
+            </div>
             <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))]">
               <QAPanel sortMode={sortMode} onSortChange={setSortMode} />
             </section>
