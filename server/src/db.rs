@@ -10,7 +10,7 @@
 //! SQLite). File-backed temp databases (`Db::open_path`) use the default
 //! pool size and are used by integration tests via `tempfile::TempDir`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
@@ -33,20 +33,69 @@ pub enum DbError {
     Migration(#[from] refinery::Error),
 }
 
-/// Opaque database handle: pool + the path it was opened from (for logs).
+/// Where this `Db` was opened from. The writer task takes different paths
+/// depending on the mode (see `acquire_writer_conn`).
+#[derive(Clone, Debug)]
+pub enum DbMode {
+    /// File-backed database. The writer owns its own freshly-opened
+    /// `rusqlite::Connection` for its lifetime; the read pool is unaffected.
+    File(PathBuf),
+    /// In-memory database. The pool is forced to `max_size = 1` because
+    /// `r2d2_sqlite::SqliteConnectionManager::memory()` creates a fresh
+    /// anonymous database per `connect()` call. The writer **borrows**
+    /// the single pool connection per batch and returns it on commit so
+    /// readers can run between batches.
+    Memory,
+}
+
+/// Opaque database handle: pool + mode (file path or in-memory marker).
 #[derive(Clone)]
 pub struct Db {
     pool: DbPool,
+    mode: DbMode,
+}
+
+/// Connection handle used by the single-writer task. See
+/// `.plan/2026-05-25-followup/persistence.md` §4.
+pub enum WriterConn {
+    /// File mode: owned, opened by the writer itself.
+    Owned(rusqlite::Connection),
+    /// `:memory:` mode: borrowed from the size-1 read pool; dropped at the
+    /// end of each batch so reads can run.
+    Pooled(DbConn),
+}
+
+impl std::ops::Deref for WriterConn {
+    type Target = rusqlite::Connection;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            WriterConn::Owned(c) => c,
+            WriterConn::Pooled(c) => c,
+        }
+    }
+}
+
+impl std::ops::DerefMut for WriterConn {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            WriterConn::Owned(c) => c,
+            WriterConn::Pooled(c) => c,
+        }
+    }
 }
 
 impl Db {
     /// Open (or create) a file-backed SQLite database, configure
     /// connection-level PRAGMAs, and run all pending migrations.
     pub fn open_path(path: impl AsRef<Path>) -> Result<Self, DbError> {
-        let manager = SqliteConnectionManager::file(path.as_ref()).with_init(configure_connection);
+        let path = path.as_ref().to_path_buf();
+        let manager = SqliteConnectionManager::file(&path).with_init(configure_connection);
         let pool = Pool::builder().build(manager)?;
         run_migrations(&pool)?;
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            mode: DbMode::File(path),
+        })
     }
 
     /// Open an in-memory database. The pool is sized to 1 so every checkout
@@ -56,15 +105,43 @@ impl Db {
         let manager = SqliteConnectionManager::memory().with_init(configure_connection);
         let pool = Pool::builder().max_size(1).build(manager)?;
         run_migrations(&pool)?;
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            mode: DbMode::Memory,
+        })
     }
 
     pub fn pool(&self) -> &DbPool {
         &self.pool
     }
 
+    pub fn mode(&self) -> &DbMode {
+        &self.mode
+    }
+
     pub fn get(&self) -> Result<DbConn, DbError> {
         Ok(self.pool.get()?)
+    }
+
+    /// Acquire the writer task's connection for one batch.
+    ///
+    /// File mode: opens a fresh `rusqlite::Connection` configured with the
+    /// same PRAGMAs as the pool. The writer can keep this `Owned` variant
+    /// alive for its whole lifetime if it wants to avoid the per-batch
+    /// open cost.
+    ///
+    /// `:memory:` mode: borrows the single pool connection. The caller
+    /// **must** drop the returned `WriterConn` between batches; otherwise
+    /// readers will block on the pool.
+    pub fn acquire_writer_conn(&self) -> Result<WriterConn, DbError> {
+        match &self.mode {
+            DbMode::File(path) => {
+                let mut conn = rusqlite::Connection::open(path)?;
+                configure_connection(&mut conn)?;
+                Ok(WriterConn::Owned(conn))
+            }
+            DbMode::Memory => Ok(WriterConn::Pooled(self.pool.get()?)),
+        }
     }
 
     pub fn set_kicked(&self, room_id: &str, guest_id: &str, kicked: bool) -> Result<(), DbError> {
@@ -158,6 +235,74 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM moderation", [], |r| r.get(0))
             .unwrap();
         assert_eq!(mods, 0);
+    }
+
+    #[test]
+    fn acquire_writer_conn_in_memory_writes_visible_to_pool() {
+        let db = Db::open_in_memory().expect("open");
+        {
+            let writer = db.acquire_writer_conn().expect("acquire writer");
+            assert!(matches!(writer, WriterConn::Pooled(_)), "memory mode → Pooled");
+            writer
+                .execute(
+                    "INSERT INTO rooms (id, title, admin_token_hash, created_at, last_active_at) \
+                     VALUES ('WRITERMEM001','t','h',0,0)",
+                    [],
+                )
+                .unwrap();
+        } // writer dropped → pool slot returned
+
+        // Subsequent pool checkout sees the writer's insert.
+        let conn = db.get().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM rooms WHERE id='WRITERMEM001'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "writer insert visible to pool checkout");
+    }
+
+    #[test]
+    fn acquire_writer_conn_in_file_mode_returns_owned() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.db");
+        let db = Db::open_path(&path).unwrap();
+        let writer = db.acquire_writer_conn().expect("acquire writer");
+        assert!(matches!(writer, WriterConn::Owned(_)), "file mode → Owned");
+        writer
+            .execute(
+                "INSERT INTO rooms (id, title, admin_token_hash, created_at, last_active_at) \
+                 VALUES ('WRITERFILE01','t','h',0,0)",
+                [],
+            )
+            .unwrap();
+        drop(writer);
+        drop(db);
+
+        // Verify the row persisted to disk by reopening with a fresh handle.
+        let db2 = Db::open_path(&path).unwrap();
+        let conn = db2.get().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM rooms WHERE id='WRITERFILE01'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn db_mode_reflects_constructor() {
+        let mem = Db::open_in_memory().unwrap();
+        assert!(matches!(mem.mode(), DbMode::Memory));
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.db");
+        let file = Db::open_path(&path).unwrap();
+        assert!(matches!(file.mode(), DbMode::File(_)));
     }
 
     #[test]
