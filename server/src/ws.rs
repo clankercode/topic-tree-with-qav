@@ -770,84 +770,19 @@ async fn handle_text(
             };
             handle_intent_result(sink, result).await
         }
-        ClientMsg::KickGuest {
-            id,
-            guest_id: target_guest_id,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
+        ClientMsg::KickGuest { .. } | ClientMsg::MuteGuest { .. } => {
+            let result = {
+                let mut ctx = SessionCtx {
                     sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            enqueue_write(
-                state,
-                room,
-                WriteOpKind::SetKicked {
-                    guest_id: target_guest_id.clone(),
-                    kicked: true,
-                    updated_at: now_ms(),
-                },
-            );
-            room.kick_guest(&target_guest_id);
-            let seq = room.next_seq();
-            let kick_notice = ServerMsg::KickNotice {
-                v: PROTOCOL_VERSION,
-                ts: now_ms(),
-                seq,
-                guest_id: target_guest_id.clone(),
+                    room,
+                    state,
+                    client_id,
+                    guest_id,
+                    role,
+                };
+                crate::intents::moderation::handle(&mut ctx, msg).await
             };
-            let _ = room.broadcast.send(kick_notice);
-            broadcast_presence(room);
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::MuteGuest {
-            id,
-            guest_id: target_guest_id,
-            muted,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            enqueue_write(
-                state,
-                room,
-                WriteOpKind::SetMuted {
-                    guest_id: target_guest_id.clone(),
-                    muted,
-                    updated_at: now_ms(),
-                },
-            );
-            room.set_muted(&target_guest_id, muted);
-            broadcast_presence(room);
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
+            handle_intent_result(sink, result).await
         }
         ClientMsg::CreateBoard {
             id, kind, title, ..
