@@ -12,7 +12,9 @@ interface CreateRoomRequest {
   title?: string;
 }
 
-export async function createRoom(req: CreateRoomRequest = {}): Promise<CreatedRoom> {
+export async function createRoom(
+  req: CreateRoomRequest = {},
+): Promise<CreatedRoom> {
   const res = await fetch("/api/rooms", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -29,7 +31,8 @@ export async function createRoom(req: CreateRoomRequest = {}): Promise<CreatedRo
     throw new Error(msg);
   }
   const body = (await res.json()) as Partial<CreatedRoom>;
-  const roomId = body.roomId ?? (body as Partial<CreatedRoom> & { id?: string }).id;
+  const roomId =
+    body.roomId ?? (body as Partial<CreatedRoom> & { id?: string }).id;
   if (!roomId || !body.adminToken) {
     throw new Error("createRoom response missing roomId or adminToken");
   }
@@ -38,12 +41,16 @@ export async function createRoom(req: CreateRoomRequest = {}): Promise<CreatedRo
     roomId,
     title: body.title ?? "Untitled room",
     adminToken: body.adminToken,
-    adminUrl: body.adminUrl ?? `${joinUrl}?admin=${encodeURIComponent(body.adminToken)}`,
+    adminUrl:
+      body.adminUrl ??
+      `${joinUrl}?admin=${encodeURIComponent(body.adminToken)}`,
     joinUrl,
   };
 }
 
-export async function persistCreatedRoomAsAdmin(room: CreatedRoom): Promise<void> {
+export async function persistCreatedRoomAsAdmin(
+  room: CreatedRoom,
+): Promise<void> {
   const guestId = await getOrCreateGuestId();
   const now = Date.now();
   await upsertRoom({

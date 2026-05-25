@@ -1,5 +1,18 @@
 import { create } from "zustand";
-import type { Board, ExcalidrawBoard, FatBoard, Guest, PenBoard, PenBoardContent, PenText, Question, RaisedHand, RoomSnapshot, RoomSummary, Topic } from "../ws/types";
+import type {
+  Board,
+  ExcalidrawBoard,
+  FatBoard,
+  Guest,
+  PenBoard,
+  PenBoardContent,
+  PenText,
+  Question,
+  RaisedHand,
+  RoomSnapshot,
+  RoomSummary,
+  Topic,
+} from "../ws/types";
 import type { Role } from "../proto/generated";
 
 export interface Me {
@@ -18,9 +31,20 @@ export type CursorPosition = {
 const CURSOR_TTL_MS = 5000;
 
 type PendingOp =
-  | { type: "add"; tempId: string; parentId: string | null; title: string; afterId: string | null }
+  | {
+      type: "add";
+      tempId: string;
+      parentId: string | null;
+      title: string;
+      afterId: string | null;
+    }
   | { type: "rename"; topicId: string; title: string }
-  | { type: "move"; topicId: string; newParentId: string | null; afterId: string | null }
+  | {
+      type: "move";
+      topicId: string;
+      newParentId: string | null;
+      afterId: string | null;
+    }
   | { type: "delete"; topicId: string };
 
 export interface SessionState {
@@ -34,7 +58,10 @@ export interface SessionState {
   boards: FatBoard[];
   focusedBoardId: string | null;
   penBoards: Map<string, PenBoardContent>;
-  penInProgressStrokes: Map<string, { color: string; size: number; points: [number, number, number][] }>;
+  penInProgressStrokes: Map<
+    string,
+    { color: string; size: number; points: [number, number, number][] }
+  >;
   lastSeq: bigint | null;
   pendingOps: Map<string, PendingOp>;
   hands: RaisedHand[];
@@ -43,35 +70,87 @@ export interface SessionState {
   connectionStatus: "connecting" | "connected" | "disconnected";
   applyWelcome(snapshot: RoomSnapshot, seq: bigint): void;
   applyPresence(guests: Guest[], seq: bigint): void;
-  applyTopicTree(topics: Topic[], activeTopicId: string | null, seq: bigint): void;
+  applyTopicTree(
+    topics: Topic[],
+    activeTopicId: string | null,
+    seq: bigint,
+  ): void;
   applyQuestionAdded(question: Question, seq: bigint): void;
   applyQuestionUpdated(question: Question, seq: bigint): void;
   applyQuestionDeleted(questionId: string, seq: bigint): void;
-  applyVoteUpdated(questionId: string, voteCount: number, voterGuestId: string, seq: bigint): void;
+  applyVoteUpdated(
+    questionId: string,
+    voteCount: number,
+    voterGuestId: string,
+    seq: bigint,
+  ): void;
   applyBoardCreated(board: Board, seq: bigint): void;
   applyBoardUpdated(board: Board, seq: bigint): void;
   applyBoardDeleted(boardId: string, seq: bigint): void;
   applyFocusedBoardChanged(boardId: string, seq: bigint): void;
-  applyExcalidrawDelta(boardId: string, sceneVersion: number, elements: unknown[], appState: unknown, seq: bigint): void;
-  applyExcalidrawSceneReset(boardId: string, sceneVersion: number, elements: unknown[], appState: unknown, seq: bigint): void;
-  applyPenStrokeBegun(boardId: string, strokeId: string, color: string, size: number): void;
-  applyPenStrokeAppended(boardId: string, strokeId: string, points: [number, number, number][]): void;
+  applyExcalidrawDelta(
+    boardId: string,
+    sceneVersion: number,
+    elements: unknown[],
+    appState: unknown,
+    seq: bigint,
+  ): void;
+  applyExcalidrawSceneReset(
+    boardId: string,
+    sceneVersion: number,
+    elements: unknown[],
+    appState: unknown,
+    seq: bigint,
+  ): void;
+  applyPenStrokeBegun(
+    boardId: string,
+    strokeId: string,
+    color: string,
+    size: number,
+  ): void;
+  applyPenStrokeAppended(
+    boardId: string,
+    strokeId: string,
+    points: [number, number, number][],
+  ): void;
   applyPenStrokeEnded(boardId: string, strokeId: string): void;
   applyPenTextUpserted(boardId: string, text: PenText): void;
   applyPenTextDeleted(boardId: string, textId: string): void;
   applyPenCleared(boardId: string): void;
-  applyPenUndone(boardId: string, removedStrokeId: string | null, removedTextId: string | null): void;
+  applyPenUndone(
+    boardId: string,
+    removedStrokeId: string | null,
+    removedTextId: string | null,
+  ): void;
   applyHandsUpdated(hands: RaisedHand[], seq: bigint): void;
-  applyCursorMoved(boardId: string, clientId: string, guestId: string, displayName: string, x: number, y: number): void;
+  applyCursorMoved(
+    boardId: string,
+    clientId: string,
+    guestId: string,
+    displayName: string,
+    x: number,
+    y: number,
+  ): void;
   removeClientCursors(clientId: string): void;
   tick(): void;
   setLastSeq(seq: bigint): void;
   reset(): void;
   setKicked(): void;
-  setConnectionStatus(status: "connecting" | "connected" | "disconnected"): void;
-  optimisticAddTopic(tempId: string, parentId: string | null, title: string, afterId: string | null): string;
+  setConnectionStatus(
+    status: "connecting" | "connected" | "disconnected",
+  ): void;
+  optimisticAddTopic(
+    tempId: string,
+    parentId: string | null,
+    title: string,
+    afterId: string | null,
+  ): string;
   optimisticRenameTopic(topicId: string, title: string): void;
-  optimisticMoveTopic(topicId: string, newParentId: string | null, afterId: string | null): void;
+  optimisticMoveTopic(
+    topicId: string,
+    newParentId: string | null,
+    afterId: string | null,
+  ): void;
   optimisticDeleteTopic(topicId: string): Topic | null;
   clearPendingOp(tempId: string): void;
   clearPendingOpByTopic(topicId: string): void;
@@ -154,7 +233,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             continue;
           }
           const matchedServerTopic = topics.find(
-            (t) => t.title === op.title && t.parentId === op.parentId && t.id !== id
+            (t) =>
+              t.title === op.title && t.parentId === op.parentId && t.id !== id,
           );
           if (matchedServerTopic) {
             newPendingOps.delete(id);
@@ -167,7 +247,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         }
       }
 
-      return { topics: finalTopics, activeTopicId, lastSeq: seq, pendingOps: newPendingOps };
+      return {
+        topics: finalTopics,
+        activeTopicId,
+        lastSeq: seq,
+        pendingOps: newPendingOps,
+      };
     });
   },
   applyQuestionAdded(question, seq) {
@@ -178,7 +263,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
   applyQuestionUpdated(question, seq) {
     set((state) => ({
-      questions: state.questions.map((q) => q.id === question.id ? question : q),
+      questions: state.questions.map((q) =>
+        q.id === question.id ? question : q,
+      ),
       lastSeq: seq,
     }));
   },
@@ -200,7 +287,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
       return {
         questions: state.questions.map((q) =>
-          q.id === questionId ? { ...q, voteCount } : q
+          q.id === questionId ? { ...q, voteCount } : q,
         ),
         myVotes: newMyVotes,
         lastSeq: seq,
@@ -220,14 +307,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
   applyBoardUpdated(board, seq) {
     set((state) => ({
-      boards: state.boards.map((b) => b.id === board.id ? { ...b, ...board } as FatBoard : b),
+      boards: state.boards.map((b) =>
+        b.id === board.id ? ({ ...b, ...board } as FatBoard) : b,
+      ),
       lastSeq: seq,
     }));
   },
   applyBoardDeleted(boardId, seq) {
     set((state) => ({
       boards: state.boards.filter((b) => b.id !== boardId),
-      focusedBoardId: state.focusedBoardId === boardId ? null : state.focusedBoardId,
+      focusedBoardId:
+        state.focusedBoardId === boardId ? null : state.focusedBoardId,
       lastSeq: seq,
     }));
   },
@@ -265,7 +355,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const existing = state.penInProgressStrokes.get(key);
       if (!existing) return state;
       const newInProgress = new Map(state.penInProgressStrokes);
-      newInProgress.set(key, { ...existing, points: [...existing.points, ...points] });
+      newInProgress.set(key, {
+        ...existing,
+        points: [...existing.points, ...points],
+      });
       return { penInProgressStrokes: newInProgress };
     });
   },
@@ -298,9 +391,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const newPenBoards = new Map(state.penBoards);
       const board = newPenBoards.get(boardId) ?? { strokes: [], texts: [] };
       const existingIdx = board.texts.findIndex((t) => t.id === text.id);
-      const newTexts = existingIdx >= 0
-        ? board.texts.map((t, i) => i === existingIdx ? text : t)
-        : [...board.texts, text];
+      const newTexts =
+        existingIdx >= 0
+          ? board.texts.map((t, i) => (i === existingIdx ? text : t))
+          : [...board.texts, text];
       newPenBoards.set(boardId, { ...board, texts: newTexts });
       return { penBoards: newPenBoards };
     });
@@ -437,7 +531,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   optimisticAddTopic(tempId, parentId, title, afterId) {
     set((state) => {
       const newPendingOps = new Map(state.pendingOps);
-      newPendingOps.set(tempId, { type: "add", tempId, parentId, title, afterId });
+      newPendingOps.set(tempId, {
+        type: "add",
+        tempId,
+        parentId,
+        title,
+        afterId,
+      });
       const maxOrd = state.topics
         .filter((t) => t.parentId === parentId)
         .reduce((max, t) => Math.max(max, t.ord), -1);
@@ -462,7 +562,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       newPendingOps.set(topicId, { type: "rename", topicId, title });
       return {
         topics: state.topics.map((t) =>
-          t.id === topicId ? { ...t, title } : t
+          t.id === topicId ? { ...t, title } : t,
         ),
         pendingOps: newPendingOps,
       };
@@ -471,10 +571,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   optimisticMoveTopic(topicId, newParentId, afterId) {
     set((state) => {
       const newPendingOps = new Map(state.pendingOps);
-      newPendingOps.set(topicId, { type: "move", topicId, newParentId, afterId });
+      newPendingOps.set(topicId, {
+        type: "move",
+        topicId,
+        newParentId,
+        afterId,
+      });
       return {
         topics: state.topics.map((t) =>
-          t.id === topicId ? { ...t, parentId: newParentId } : t
+          t.id === topicId ? { ...t, parentId: newParentId } : t,
         ),
         pendingOps: newPendingOps,
       };
@@ -487,12 +592,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set((state) => {
       const newPendingOps = new Map(state.pendingOps);
       newPendingOps.set(topicId, { type: "delete", topicId });
-      const childIds = state.topics.filter((t) => t.parentId === topicId).map((t) => t.id);
+      const childIds = state.topics
+        .filter((t) => t.parentId === topicId)
+        .map((t) => t.id);
       childIds.forEach((id) => {
         newPendingOps.set(id, { type: "delete", topicId: id });
       });
       return {
-        topics: state.topics.filter((t) => t.id !== topicId && !childIds.includes(t.id)),
+        topics: state.topics.filter(
+          (t) => t.id !== topicId && !childIds.includes(t.id),
+        ),
         pendingOps: newPendingOps,
       };
     });

@@ -119,34 +119,34 @@ export function GuestSession() {
   return (
     <>
       <ConnectionBanner />
-    <main data-testid="guest-shell" className="min-h-full p-6">
-      <div className="mx-auto max-w-5xl space-y-4">
-        <header className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {record.title}
-            </h1>
-            <p className="text-sm text-[rgb(var(--muted))]">
-              Joined as {record.displayName}
-            </p>
+      <main data-testid="guest-shell" className="min-h-full p-6">
+        <div className="mx-auto max-w-5xl space-y-4">
+          <header className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {record.title}
+              </h1>
+              <p className="text-sm text-[rgb(var(--muted))]">
+                Joined as {record.displayName}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <ThemeToggle />
+              <RaiseHandButton />
+              <PresenceIndicator />
+            </div>
+          </header>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <TopicTree />
+            <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))]">
+              <QAPanel sortMode={sortMode} onSortChange={setSortMode} />
+            </section>
           </div>
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            <RaiseHandButton />
-            <PresenceIndicator />
-          </div>
-        </header>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <TopicTree />
-          <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))]">
-            <QAPanel sortMode={sortMode} onSortChange={setSortMode} />
+          <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] overflow-hidden">
+            <BoardPanel />
           </section>
         </div>
-        <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] overflow-hidden">
-          <BoardPanel />
-        </section>
-      </div>
-    </main>
+      </main>
     </>
   );
 }

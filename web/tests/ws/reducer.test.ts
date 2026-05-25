@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSessionStore } from "../../src/store";
 import { applyServerMessage } from "../../src/ws/reducer";
-import type { Guest, Question, RaisedHand, RoomSnapshot, ServerMsg } from "../../src/ws/types";
+import type {
+  Guest,
+  Question,
+  RaisedHand,
+  RoomSnapshot,
+  ServerMsg,
+} from "../../src/ws/types";
 
 function snapshot(over: Partial<RoomSnapshot> = {}): RoomSnapshot {
   return {
@@ -42,8 +48,19 @@ function presence(guests: Guest[], seq = 2n): ServerMsg {
   };
 }
 
-function makeTopic(id: string, title: string, parentId: string | null = null): import("../../src/ws/types").Topic {
-  return { id, parentId, title, ord: 1.0, status: "pending" as const, createdAt: 1000 };
+function makeTopic(
+  id: string,
+  title: string,
+  parentId: string | null = null,
+): import("../../src/ws/types").Topic {
+  return {
+    id,
+    parentId,
+    title,
+    ord: 1.0,
+    status: "pending" as const,
+    createdAt: 1000,
+  };
 }
 
 function makeQuestion(id: string, text: string): Question {
@@ -166,9 +183,14 @@ describe("ws reducer", () => {
   });
 
   it("VoteUpdated changes vote count and myVotes", () => {
-    applyServerMessage(welcome(1n, snapshot({
-      myVotes: [],
-    })));
+    applyServerMessage(
+      welcome(
+        1n,
+        snapshot({
+          myVotes: [],
+        }),
+      ),
+    );
     applyServerMessage({
       v: 1,
       ts: 0n,
@@ -197,7 +219,13 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "BoardCreated",
-      board: { id: "b1", roomId: "r1", kind: "pen", title: "Board 1", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "pen",
+        title: "Board 1",
+        createdAt: 1000,
+      },
     });
     const s = useSessionStore.getState();
     expect(s.boards).toHaveLength(1);
@@ -211,14 +239,26 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "BoardCreated",
-      board: { id: "b1", roomId: "r1", kind: "pen", title: "Board 1", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "pen",
+        title: "Board 1",
+        createdAt: 1000,
+      },
     });
     applyServerMessage({
       v: 1,
       ts: 0n,
       seq: 3n,
       type: "BoardUpdated",
-      board: { id: "b1", roomId: "r1", kind: "pen", title: "Renamed Board", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "pen",
+        title: "Renamed Board",
+        createdAt: 1000,
+      },
     });
     const s = useSessionStore.getState();
     expect(s.boards[0].title).toBe("Renamed Board");
@@ -231,7 +271,13 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "BoardCreated",
-      board: { id: "b1", roomId: "r1", kind: "pen", title: "Board 1", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "pen",
+        title: "Board 1",
+        createdAt: 1000,
+      },
     });
     applyServerMessage({
       v: 1,
@@ -245,9 +291,14 @@ describe("ws reducer", () => {
   });
 
   it("FocusedBoardChanged updates focusedBoardId for host", () => {
-    applyServerMessage(welcome(1n, snapshot({
-      you: { clientId: "c1", role: "host", guestId: "h1" },
-    })));
+    applyServerMessage(
+      welcome(
+        1n,
+        snapshot({
+          you: { clientId: "c1", role: "host", guestId: "h1" },
+        }),
+      ),
+    );
     applyServerMessage({
       v: 1,
       ts: 0n,
@@ -283,7 +334,13 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "BoardCreated",
-      board: { id: "b1", roomId: "r1", kind: "excalidraw", title: "Excal", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "excalidraw",
+        title: "Excal",
+        createdAt: 1000,
+      },
     });
     applyServerMessage({
       v: 1,
@@ -296,7 +353,9 @@ describe("ws reducer", () => {
       appState: { viewModeEnabled: false },
     });
     const s = useSessionStore.getState();
-    const board = s.boards.find((b) => b.id === "b1") as import("../../src/ws/types").ExcalidrawBoard;
+    const board = s.boards.find(
+      (b) => b.id === "b1",
+    ) as import("../../src/ws/types").ExcalidrawBoard;
     expect(board.sceneVersion).toBe(2);
     expect(board.elements).toEqual([{ id: "el1" }]);
   });
@@ -308,7 +367,13 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "BoardCreated",
-      board: { id: "b1", roomId: "r1", kind: "excalidraw", title: "Excal", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "excalidraw",
+        title: "Excal",
+        createdAt: 1000,
+      },
     });
     applyServerMessage({
       v: 1,
@@ -331,7 +396,9 @@ describe("ws reducer", () => {
       appState: { viewModeEnabled: true },
     });
     const s = useSessionStore.getState();
-    const board = s.boards.find((b) => b.id === "b1") as import("../../src/ws/types").ExcalidrawBoard;
+    const board = s.boards.find(
+      (b) => b.id === "b1",
+    ) as import("../../src/ws/types").ExcalidrawBoard;
     expect(board.sceneVersion).toBe(1);
   });
 
@@ -342,7 +409,13 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "BoardCreated",
-      board: { id: "b1", roomId: "r1", kind: "pen", title: "Pen", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "pen",
+        title: "Pen",
+        createdAt: 1000,
+      },
     });
     applyServerMessage({
       v: 1,
@@ -366,7 +439,13 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "BoardCreated",
-      board: { id: "b1", roomId: "r1", kind: "pen", title: "Pen", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "pen",
+        title: "Pen",
+        createdAt: 1000,
+      },
     });
     applyServerMessage({
       v: 1,
@@ -385,7 +464,10 @@ describe("ws reducer", () => {
       type: "PenStrokeAppended",
       boardId: "b1",
       strokeId: "s1",
-      points: [[0, 1, 2], [3, 4, 5]],
+      points: [
+        [0, 1, 2],
+        [3, 4, 5],
+      ],
     });
     const s = useSessionStore.getState();
     const key = `${"b1"}:${"s1"}`;
@@ -399,7 +481,13 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "BoardCreated",
-      board: { id: "b1", roomId: "r1", kind: "pen", title: "Pen", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "pen",
+        title: "Pen",
+        createdAt: 1000,
+      },
     });
     applyServerMessage({
       v: 1,
@@ -432,7 +520,13 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "BoardCreated",
-      board: { id: "b1", roomId: "r1", kind: "pen", title: "Pen", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "pen",
+        title: "Pen",
+        createdAt: 1000,
+      },
     });
     applyServerMessage({
       v: 1,
@@ -440,7 +534,14 @@ describe("ws reducer", () => {
       seq: 3n,
       type: "PenTextUpserted",
       boardId: "b1",
-      text: { id: "t1", text: "Hello", x: 10, y: 20, fontSize: 16, color: "#000" },
+      text: {
+        id: "t1",
+        text: "Hello",
+        x: 10,
+        y: 20,
+        fontSize: 16,
+        color: "#000",
+      },
     });
     const s = useSessionStore.getState();
     const board = s.penBoards.get("b1");
@@ -455,7 +556,13 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "BoardCreated",
-      board: { id: "b1", roomId: "r1", kind: "pen", title: "Pen", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "pen",
+        title: "Pen",
+        createdAt: 1000,
+      },
     });
     applyServerMessage({
       v: 1,
@@ -463,7 +570,14 @@ describe("ws reducer", () => {
       seq: 3n,
       type: "PenTextUpserted",
       boardId: "b1",
-      text: { id: "t1", text: "Hello", x: 10, y: 20, fontSize: 16, color: "#000" },
+      text: {
+        id: "t1",
+        text: "Hello",
+        x: 10,
+        y: 20,
+        fontSize: 16,
+        color: "#000",
+      },
     });
     applyServerMessage({
       v: 1,
@@ -485,7 +599,13 @@ describe("ws reducer", () => {
       ts: 0n,
       seq: 2n,
       type: "BoardCreated",
-      board: { id: "b1", roomId: "r1", kind: "pen", title: "Pen", createdAt: 1000 },
+      board: {
+        id: "b1",
+        roomId: "r1",
+        kind: "pen",
+        title: "Pen",
+        createdAt: 1000,
+      },
     });
     applyServerMessage({
       v: 1,
@@ -493,7 +613,14 @@ describe("ws reducer", () => {
       seq: 3n,
       type: "PenTextUpserted",
       boardId: "b1",
-      text: { id: "t1", text: "Hello", x: 10, y: 20, fontSize: 16, color: "#000" },
+      text: {
+        id: "t1",
+        text: "Hello",
+        x: 10,
+        y: 20,
+        fontSize: 16,
+        color: "#000",
+      },
     });
     applyServerMessage({
       v: 1,

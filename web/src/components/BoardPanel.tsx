@@ -40,7 +40,10 @@ export function BoardPanel() {
             Create Board
           </button>
         )}
-        <CreateBoardDialog open={showCreate} onClose={() => setShowCreate(false)} />
+        <CreateBoardDialog
+          open={showCreate}
+          onClose={() => setShowCreate(false)}
+        />
       </div>
     );
   }
@@ -79,11 +82,20 @@ export function BoardPanel() {
       <div className="flex-1 overflow-hidden flex items-center justify-center">
         {focusedBoard?.kind === "excalidraw" ? (
           <div className="w-full h-full">
-            <ExcalidrawBoard board={focusedBoard as ExcalidrawBoardType} isHost={isHost} />
+            <ExcalidrawBoard
+              board={focusedBoard as ExcalidrawBoardType}
+              isHost={isHost}
+            />
           </div>
         ) : focusedBoard?.kind === "pen" ? (
           <div className="w-full max-w-full" style={{ aspectRatio: "16/9" }}>
-            <PenBoard boardId={focusedBoard.id} content={penBoards.get(focusedBoard.id) ?? { strokes: [], texts: [] }} isHost={isHost} />
+            <PenBoard
+              boardId={focusedBoard.id}
+              content={
+                penBoards.get(focusedBoard.id) ?? { strokes: [], texts: [] }
+              }
+              isHost={isHost}
+            />
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-[rgb(var(--muted))]">
@@ -91,7 +103,10 @@ export function BoardPanel() {
           </div>
         )}
       </div>
-      <CreateBoardDialog open={showCreate} onClose={() => setShowCreate(false)} />
+      <CreateBoardDialog
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+      />
     </div>
   );
 }

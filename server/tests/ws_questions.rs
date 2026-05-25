@@ -8,9 +8,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{
-    await_until, guest_hello, host_hello, read_question_votes_for_test, TestApp,
-};
+use common::{await_until, guest_hello, host_hello, read_question_votes_for_test, TestApp};
 
 #[tokio::test]
 async fn submit_question_broadcasts_to_all_clients_in_room() {
@@ -26,9 +24,7 @@ async fn submit_question_broadcasts_to_all_clients_in_room() {
         .await;
 
     let mut guest = app.connect_ws(&room.room_id).await;
-    guest
-        .send_json(&guest_hello("g-broadcast", "Alice"))
-        .await;
+    guest.send_json(&guest_hello("g-broadcast", "Alice")).await;
     let _ = guest
         .await_msg(Duration::from_secs(2), |v| v["type"] == "Welcome")
         .await;
@@ -48,23 +44,17 @@ async fn submit_question_broadcasts_to_all_clients_in_room() {
     // question.text equals the submitted text.
     let host_frame = host
         .await_msg(Duration::from_secs(2), |v| {
-            v["type"] == "QuestionAdded"
-                && v["question"]["text"] == "Will every client see this?"
+            v["type"] == "QuestionAdded" && v["question"]["text"] == "Will every client see this?"
         })
         .await;
     let guest_frame = guest
         .await_msg(Duration::from_secs(2), |v| {
-            v["type"] == "QuestionAdded"
-                && v["question"]["text"] == "Will every client see this?"
+            v["type"] == "QuestionAdded" && v["question"]["text"] == "Will every client see this?"
         })
         .await;
 
-    let qid_host = host_frame["question"]["id"]
-        .as_str()
-        .expect("question id");
-    let qid_guest = guest_frame["question"]["id"]
-        .as_str()
-        .expect("question id");
+    let qid_host = host_frame["question"]["id"].as_str().expect("question id");
+    let qid_guest = guest_frame["question"]["id"].as_str().expect("question id");
     assert_eq!(
         qid_host, qid_guest,
         "all clients observe the same question id"

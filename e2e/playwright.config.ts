@@ -45,6 +45,10 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       PORT: String(PORT),
+      // Pinned wall clock so `Welcome.ts` / `Question.createdAt` /
+      // every server-emitted `ts` are identical across snapshot runs.
+      // Mid-2024 epoch ms. The server reads this at startup once.
+      TEST_FIXED_NOW: "1717200000000",
     },
     stdout: "pipe",
     stderr: "pipe",

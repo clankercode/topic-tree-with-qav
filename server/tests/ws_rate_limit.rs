@@ -73,8 +73,7 @@ async fn cursor_messages_exceeding_rate_limit_are_dropped() {
     let mut received = 0usize;
     let drain_deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
-        let timed_out =
-            tokio::time::timeout(Duration::from_millis(200), host.recv_json()).await;
+        let timed_out = tokio::time::timeout(Duration::from_millis(200), host.recv_json()).await;
         match timed_out {
             Ok(v) if v["type"] == "CursorMoved" => {
                 received += 1;

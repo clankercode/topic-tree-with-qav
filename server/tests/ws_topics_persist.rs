@@ -6,9 +6,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{
-    await_until, host_hello, read_topics_for_test, TestApp,
-};
+use common::{await_until, host_hello, read_topics_for_test, TestApp};
 
 #[tokio::test]
 async fn add_topic_over_ws_persists_to_db() {
@@ -16,12 +14,8 @@ async fn add_topic_over_ws_persists_to_db() {
     let room = app.create_room(Some("Persist Topics")).await;
 
     let mut host = app.connect_ws(&room.room_id).await;
-    host.send_json(&host_hello(
-        "host-1",
-        "Host",
-        &room.admin_token,
-    ))
-    .await;
+    host.send_json(&host_hello("host-1", "Host", &room.admin_token))
+        .await;
     // Wait for Welcome before sending AddTopic.
     let _welcome = host
         .await_msg(Duration::from_secs(2), |v| v["type"] == "Welcome")
@@ -74,7 +68,9 @@ async fn rename_topic_over_ws_persists_to_db() {
     }))
     .await;
     let _ = host
-        .await_msg(Duration::from_secs(2), |v| v["type"] == "Ack" && v["refId"] == "a1")
+        .await_msg(Duration::from_secs(2), |v| {
+            v["type"] == "Ack" && v["refId"] == "a1"
+        })
         .await;
 
     // Pick up the topic id from the broadcast snapshot.
@@ -88,7 +84,9 @@ async fn rename_topic_over_ws_persists_to_db() {
     }))
     .await;
     let _ = host
-        .await_msg(Duration::from_secs(2), |v| v["type"] == "Ack" && v["refId"] == "r1")
+        .await_msg(Duration::from_secs(2), |v| {
+            v["type"] == "Ack" && v["refId"] == "r1"
+        })
         .await;
 
     let room_id = room.room_id.clone();
@@ -133,7 +131,9 @@ async fn delete_topic_over_ws_removes_from_db() {
     }))
     .await;
     let _ = host
-        .await_msg(Duration::from_secs(2), |v| v["type"] == "Ack" && v["refId"] == "d")
+        .await_msg(Duration::from_secs(2), |v| {
+            v["type"] == "Ack" && v["refId"] == "d"
+        })
         .await;
 
     await_until("delete to land", Duration::from_secs(2), || {

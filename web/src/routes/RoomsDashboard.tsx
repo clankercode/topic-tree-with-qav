@@ -34,10 +34,15 @@ export function RoomsDashboard() {
           <ul className="divide-y divide-[rgb(var(--border))] rounded border border-[rgb(var(--border))]">
             {rooms.map((room) => {
               const href =
-                room.role === "admin" ? `/r/${room.roomId}/host` : `/r/${room.roomId}`;
+                room.role === "admin"
+                  ? `/r/${room.roomId}/host`
+                  : `/r/${room.roomId}`;
               return (
                 <li key={room.roomId} className="p-4">
-                  <Link to={href} className="font-medium text-[rgb(var(--accent))]">
+                  <Link
+                    to={href}
+                    className="font-medium text-[rgb(var(--accent))]"
+                  >
                     {room.title || room.roomId}
                   </Link>
                   <p className="text-sm text-[rgb(var(--muted))]">

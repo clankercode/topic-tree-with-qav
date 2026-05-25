@@ -98,10 +98,7 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
         onMouseMove={handleCursorMove}
         onMouseClick={handleClick}
       />
-      <ClickPingLayer
-        boardId={board.id}
-        containerRef={containerRef}
-      />
+      <ClickPingLayer boardId={board.id} containerRef={containerRef} />
     </div>
   );
 }

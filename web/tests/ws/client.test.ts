@@ -40,7 +40,9 @@ function makeFakeSocket(url: string): FakeSocket {
     remoteClose(code = 1006, reason = "") {
       fake.closed = true;
       (fake as { readyState: number }).readyState = 3;
-      fake.onclose?.(new CloseEvent("close", { code, reason, wasClean: false }));
+      fake.onclose?.(
+        new CloseEvent("close", { code, reason, wasClean: false }),
+      );
     },
   };
   return fake;

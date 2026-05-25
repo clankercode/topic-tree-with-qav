@@ -66,9 +66,7 @@ async fn kicked_guest_cannot_reconnect_until_room_unblocks() {
 
     // A different guest_id, however, can still join — kick is per-guest.
     let mut stranger = app.connect_ws(&room.room_id).await;
-    stranger
-        .send_json(&guest_hello("g-newcomer", "Bob"))
-        .await;
+    stranger.send_json(&guest_hello("g-newcomer", "Bob")).await;
     let _ = stranger
         .await_msg(Duration::from_secs(2), |v| v["type"] == "Welcome")
         .await;

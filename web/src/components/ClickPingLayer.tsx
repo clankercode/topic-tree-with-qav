@@ -20,7 +20,11 @@ export function ClickPingLayer({ boardId }: ClickPingLayerProps) {
 
   useEffect(() => {
     const handleClicked = (e: Event) => {
-      const customEvent = e as CustomEvent<{ x: number; y: number; displayName: string }>;
+      const customEvent = e as CustomEvent<{
+        x: number;
+        y: number;
+        displayName: string;
+      }>;
       const ping: ClickPing = {
         id: crypto.randomUUID(),
         x: customEvent.detail.x,

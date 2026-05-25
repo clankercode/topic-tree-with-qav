@@ -9,7 +9,14 @@ interface PenTextLayerProps {
   texts: PenText[];
   selectedTextId: string | null;
   onTextSelect?: (textId: string | null) => void;
-  onTextCommit?: (textId: string, x: number, y: number, text: string, fontSize: number, color: string) => void;
+  onTextCommit?: (
+    textId: string,
+    x: number,
+    y: number,
+    text: string,
+    fontSize: number,
+    color: string,
+  ) => void;
   onTextDelete?: (textId: string) => void;
   isHost?: boolean;
   tool?: ToolMode;
@@ -77,7 +84,14 @@ export function PenTextLayer({
   const handleCommit = () => {
     if (!editing) return;
     if (editing.text.trim()) {
-      onTextCommit?.(editing.id, editing.x, editing.y, editing.text, editing.fontSize, editing.color);
+      onTextCommit?.(
+        editing.id,
+        editing.x,
+        editing.y,
+        editing.text,
+        editing.fontSize,
+        editing.color,
+      );
     }
     setEditing(null);
   };
@@ -90,7 +104,12 @@ export function PenTextLayer({
     if (e.key === "Escape") {
       setEditing(null);
     }
-    if (e.key === "Backspace" && editing && editing.text === "" && selectedTextId) {
+    if (
+      e.key === "Backspace" &&
+      editing &&
+      editing.text === "" &&
+      selectedTextId
+    ) {
       onTextDelete?.(selectedTextId);
       setEditing(null);
     }
@@ -99,7 +118,13 @@ export function PenTextLayer({
   return (
     <div
       className="absolute inset-0"
-      style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT, transform: "scale(1)", transformOrigin: "top left", pointerEvents: tool === "text" ? "auto" : "none" }}
+      style={{
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT,
+        transform: "scale(1)",
+        transformOrigin: "top left",
+        pointerEvents: tool === "text" ? "auto" : "none",
+      }}
       onClick={handleCanvasClick}
     >
       {texts.map((text) => (

@@ -263,10 +263,7 @@ pub enum WriteOpKind {
     },
     /// Atomic: insert a topic AND delete a question, one transaction.
     /// See `.plan/2026-05-25-followup/persistence.md` §3 Questions.
-    PromoteQuestionToTopic {
-        question_id: String,
-        topic: Topic,
-    },
+    PromoteQuestionToTopic { question_id: String, topic: Topic },
 
     /// Insert or update a board row.
     UpsertBoard { board: Board },
@@ -385,7 +382,10 @@ mod tests {
         let db = Db::open_in_memory().expect("open");
         {
             let writer = db.acquire_writer_conn().expect("acquire writer");
-            assert!(matches!(writer, WriterConn::Pooled(_)), "memory mode → Pooled");
+            assert!(
+                matches!(writer, WriterConn::Pooled(_)),
+                "memory mode → Pooled"
+            );
             writer
                 .execute(
                     "INSERT INTO rooms (id, title, admin_token_hash, created_at, last_active_at) \

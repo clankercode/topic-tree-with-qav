@@ -139,8 +139,7 @@ async fn pen_stroke_lifecycle_persists_and_replays_on_reconnect() {
         assert_eq!(color, "#222");
         assert_eq!(*size, 4.0);
         assert_eq!(*ord, 1, "stroke ord finalized at PenStrokeEnd");
-        let points: Vec<[f32; 3]> =
-            serde_json::from_str(points_json).expect("decode points_json");
+        let points: Vec<[f32; 3]> = serde_json::from_str(points_json).expect("decode points_json");
         assert_eq!(points.len(), 3, "all three appended points persisted");
         assert_eq!(points[0], [10.0, 20.0, 0.5]);
         assert_eq!(points[2], [12.0, 22.0, 0.7]);

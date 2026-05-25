@@ -62,10 +62,8 @@ async fn writer_loop(db: Db, mut rx: WriteReceiver) {
         }
         let batch_len = batch.len();
         let db_for_blocking = db.clone();
-        let join_result = tokio::task::spawn_blocking(move || {
-            apply_batch_sync(&db_for_blocking, &batch)
-        })
-        .await;
+        let join_result =
+            tokio::task::spawn_blocking(move || apply_batch_sync(&db_for_blocking, &batch)).await;
         match join_result {
             Ok(Ok(())) => {
                 tracing::trace!(batch_len, "writer batch committed");
@@ -174,7 +172,14 @@ pub(crate) fn apply_op_in_tx(tx: &Transaction<'_>, op: &WriteOp) -> Result<(), D
             action_id,
             before_json,
             created_at,
-        } => apply_upsert_pen_text(tx, board_id, text, action_id, before_json.as_deref(), *created_at),
+        } => apply_upsert_pen_text(
+            tx,
+            board_id,
+            text,
+            action_id,
+            before_json.as_deref(),
+            *created_at,
+        ),
         WriteOpKind::DeletePenText {
             board_id,
             text_id,
@@ -210,11 +215,7 @@ fn topic_status_str(s: TopicStatus) -> &'static str {
     }
 }
 
-fn apply_upsert_topic(
-    tx: &Transaction<'_>,
-    room_id: &str,
-    topic: &Topic,
-) -> Result<(), DbError> {
+fn apply_upsert_topic(tx: &Transaction<'_>, room_id: &str, topic: &Topic) -> Result<(), DbError> {
     tx.execute(
         "INSERT INTO topics (id, room_id, parent_id, title, ord, status, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
@@ -236,11 +237,7 @@ fn apply_upsert_topic(
     Ok(())
 }
 
-fn apply_rename_topic(
-    tx: &Transaction<'_>,
-    topic_id: &str,
-    title: &str,
-) -> Result<(), DbError> {
+fn apply_rename_topic(tx: &Transaction<'_>, topic_id: &str, title: &str) -> Result<(), DbError> {
     tx.execute(
         "UPDATE topics SET title = ?1 WHERE id = ?2",
         rusqlite::params![title, topic_id],
@@ -293,11 +290,7 @@ fn apply_set_active_topic(
     Ok(())
 }
 
-fn apply_upsert_question(
-    tx: &Transaction<'_>,
-    room_id: &str,
-    q: &Question,
-) -> Result<(), DbError> {
+fn apply_upsert_question(tx: &Transaction<'_>, room_id: &str, q: &Question) -> Result<(), DbError> {
     tx.execute(
         "INSERT INTO questions (id, room_id, author_guest_id, author_name, anonymous, text, \
                                 answered, created_at) \
@@ -376,11 +369,7 @@ fn board_kind_str(k: &BoardKind) -> &'static str {
     }
 }
 
-fn apply_upsert_board(
-    tx: &Transaction<'_>,
-    room_id: &str,
-    b: &Board,
-) -> Result<(), DbError> {
+fn apply_upsert_board(tx: &Transaction<'_>, room_id: &str, b: &Board) -> Result<(), DbError> {
     tx.execute(
         "INSERT INTO boards (id, room_id, kind, title, ord, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
@@ -399,11 +388,7 @@ fn apply_upsert_board(
     Ok(())
 }
 
-fn apply_rename_board(
-    tx: &Transaction<'_>,
-    board_id: &str,
-    title: &str,
-) -> Result<(), DbError> {
+fn apply_rename_board(tx: &Transaction<'_>, board_id: &str, title: &str) -> Result<(), DbError> {
     tx.execute(
         "UPDATE boards SET title = ?1 WHERE id = ?2",
         rusqlite::params![title, board_id],
@@ -529,7 +514,15 @@ fn write_pen_action(
     tx.execute(
         "INSERT INTO pen_actions (id, board_id, kind, target_id, ord, created_at, payload_json) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        rusqlite::params![action_id, board_id, kind, target_id, ord, created_at, payload_json],
+        rusqlite::params![
+            action_id,
+            board_id,
+            kind,
+            target_id,
+            ord,
+            created_at,
+            payload_json
+        ],
     )?;
     Ok(())
 }
@@ -541,9 +534,8 @@ fn apply_insert_completed_pen_stroke(
     action_id: &str,
     created_at: i64,
 ) -> Result<(), DbError> {
-    let points_json = serde_json::to_string(&stroke.points).map_err(|e| {
-        DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
-    })?;
+    let points_json = serde_json::to_string(&stroke.points)
+        .map_err(|e| DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e))))?;
     tx.execute(
         "INSERT INTO pen_strokes (id, board_id, color, size, points_json, ord, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -673,13 +665,12 @@ fn apply_pen_undo(
     target_action_id: &str,
 ) -> Result<(), DbError> {
     // Read the action's snapshot first; abort if the row is gone (no-op).
-    let (kind, target_id, payload): (String, Option<String>, Option<String>) = match tx
-        .query_row(
-            "SELECT kind, target_id, payload_json FROM pen_actions \
+    let (kind, target_id, payload): (String, Option<String>, Option<String>) = match tx.query_row(
+        "SELECT kind, target_id, payload_json FROM pen_actions \
              WHERE id = ?1 AND board_id = ?2",
-            rusqlite::params![target_action_id, board_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        ) {
+        rusqlite::params![target_action_id, board_id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    ) {
         Ok(row) => row,
         Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(()),
         Err(e) => return Err(e.into()),
@@ -768,9 +759,11 @@ fn apply_pen_undo(
                 })?;
                 if let Some(strokes) = v.get("strokes").and_then(|x| x.as_array()) {
                     for s in strokes {
-                        let stroke: PenStrokeSummary = serde_json::from_value(s.clone())
-                            .map_err(|e| {
-                                DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+                        let stroke: PenStrokeSummary =
+                            serde_json::from_value(s.clone()).map_err(|e| {
+                                DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(
+                                    e,
+                                )))
                             })?;
                         let pts = serde_json::to_string(&stroke.points).map_err(|e| {
                             DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
@@ -928,7 +921,10 @@ mod tests {
                 })
                 .unwrap();
         }
-        assert!(handle.shutdown().await, "writer should finish within timeout");
+        assert!(
+            handle.shutdown().await,
+            "writer should finish within timeout"
+        );
 
         let conn = db.get().unwrap();
         let n: i64 = conn
@@ -974,11 +970,9 @@ mod tests {
         );
         let conn = db.get().unwrap();
         let (title, ord): (String, f64) = conn
-            .query_row(
-                "SELECT title, ord FROM topics WHERE id='t-1'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
+            .query_row("SELECT title, ord FROM topics WHERE id='t-1'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
         assert_eq!(title, "new-name");
         assert_eq!(ord, 1.0, "rename must not touch ord");
@@ -1015,11 +1009,9 @@ mod tests {
         );
         let conn = db.get().unwrap();
         let (parent, ord): (Option<String>, f64) = conn
-            .query_row(
-                "SELECT parent_id, ord FROM topics WHERE id='c'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
+            .query_row("SELECT parent_id, ord FROM topics WHERE id='c'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
         assert_eq!(parent.as_deref(), Some("p"));
         assert_eq!(ord, 5.0);
@@ -1235,7 +1227,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(bob_ts, 100, "first AddVote wins; INSERT OR IGNORE skips the second");
+        assert_eq!(
+            bob_ts, 100,
+            "first AddVote wins; INSERT OR IGNORE skips the second"
+        );
     }
 
     #[test]
@@ -1311,11 +1306,9 @@ mod tests {
         );
         let conn = db.get().unwrap();
         let answered: i32 = conn
-            .query_row(
-                "SELECT answered FROM questions WHERE id='q'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT answered FROM questions WHERE id='q'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(answered, 1);
     }
@@ -1641,10 +1634,7 @@ mod tests {
                 },
             ],
         );
-        let (k, m) = db
-            .get_moderation("ROOMMOD000001", "g")
-            .unwrap()
-            .unwrap();
+        let (k, m) = db.get_moderation("ROOMMOD000001", "g").unwrap().unwrap();
         assert!(k && m, "kick must preserve existing mute");
     }
 
@@ -1673,10 +1663,7 @@ mod tests {
                 },
             ],
         );
-        let (k, m) = db
-            .get_moderation("ROOMMOD000002", "g")
-            .unwrap()
-            .unwrap();
+        let (k, m) = db.get_moderation("ROOMMOD000002", "g").unwrap().unwrap();
         assert!(k && m, "mute must preserve existing kick");
     }
 
@@ -1822,11 +1809,9 @@ mod tests {
             .unwrap();
         assert_eq!(row_text, "hello", "undo should restore prior text");
         let action_present: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM pen_actions WHERE id='a2'",
-                [],
-                |r| r.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM pen_actions WHERE id='a2'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(action_present, 0, "undo deletes the target action row");
     }
@@ -2080,11 +2065,9 @@ mod tests {
 
         let conn = db.get().unwrap();
         let (title, ord): (String, f64) = conn
-            .query_row(
-                "SELECT title, ord FROM topics WHERE id='t-1'",
-                [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
+            .query_row("SELECT title, ord FROM topics WHERE id='t-1'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .unwrap();
         assert_eq!(title, "renamed");
         assert_eq!(ord, 9.0);

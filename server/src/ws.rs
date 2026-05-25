@@ -2007,13 +2007,9 @@ async fn handle_text(
                 color: color.clone(),
                 updated_at: now,
             };
-            if let Some((action_id, prior)) =
-                room.pen_text_upsert(&board_id, pt.clone(), now)
-            {
+            if let Some((action_id, prior)) = room.pen_text_upsert(&board_id, pt.clone(), now) {
                 broadcast_pen_text_upserted(room, &board_id, &pt);
-                let before_json = prior.as_ref().and_then(|p| {
-                    serde_json::to_string(p).ok()
-                });
+                let before_json = prior.as_ref().and_then(|p| serde_json::to_string(p).ok());
                 enqueue_write(
                     state,
                     room,
@@ -2052,17 +2048,15 @@ async fn handle_text(
                 return Ok(());
             }
             let now = now_ms();
-            if let Some((action_id, removed)) =
-                room.pen_text_delete(&board_id, &text_id, now)
-            {
+            if let Some((action_id, removed)) = room.pen_text_delete(&board_id, &text_id, now) {
                 broadcast_pen_text_deleted(room, &board_id, &text_id);
                 // before_json captures the row we just removed so
                 // PenUndo can restore it. Fall back to "null" only on
                 // serializer error — apply_pen_undo treats that as "no
                 // prior state" and skips the restore, matching the
                 // semantics of an undo whose row never persisted.
-                let before_json = serde_json::to_string(&removed)
-                    .unwrap_or_else(|_| "null".to_string());
+                let before_json =
+                    serde_json::to_string(&removed).unwrap_or_else(|_| "null".to_string());
                 enqueue_write(
                     state,
                     room,
@@ -2096,27 +2090,23 @@ async fn handle_text(
                 return Ok(());
             }
             let now = now_ms();
-            if let Some((action_id, prior_strokes, prior_texts)) =
-                room.pen_clear(&board_id, now)
-            {
+            if let Some((action_id, prior_strokes, prior_texts)) = room.pen_clear(&board_id, now) {
                 broadcast_pen_cleared(room, &board_id);
-                let prior_stroke_summaries: Vec<crate::proto::PenStrokeSummary> =
-                    prior_strokes
-                        .into_iter()
-                        .map(|s| crate::proto::PenStrokeSummary {
-                            id: s.id,
-                            color: s.color,
-                            size: s.size,
-                            points: s.points,
-                            created_at: s.created_at,
-                            ord: s.ord,
-                        })
-                        .collect();
-                let before_strokes_json =
-                    serde_json::to_string(&prior_stroke_summaries)
-                        .unwrap_or_else(|_| "[]".to_string());
-                let before_texts_json = serde_json::to_string(&prior_texts)
+                let prior_stroke_summaries: Vec<crate::proto::PenStrokeSummary> = prior_strokes
+                    .into_iter()
+                    .map(|s| crate::proto::PenStrokeSummary {
+                        id: s.id,
+                        color: s.color,
+                        size: s.size,
+                        points: s.points,
+                        created_at: s.created_at,
+                        ord: s.ord,
+                    })
+                    .collect();
+                let before_strokes_json = serde_json::to_string(&prior_stroke_summaries)
                     .unwrap_or_else(|_| "[]".to_string());
+                let before_texts_json =
+                    serde_json::to_string(&prior_texts).unwrap_or_else(|_| "[]".to_string());
                 enqueue_write(
                     state,
                     room,

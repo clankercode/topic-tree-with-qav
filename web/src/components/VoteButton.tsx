@@ -8,7 +8,12 @@ interface VoteButtonProps {
   disabled?: boolean;
 }
 
-export function VoteButton({ questionId, voteCount, hasVoted, disabled }: VoteButtonProps) {
+export function VoteButton({
+  questionId,
+  voteCount,
+  hasVoted,
+  disabled,
+}: VoteButtonProps) {
   function handleVote() {
     if (disabled) return;
     sendWsMsg({

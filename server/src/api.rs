@@ -109,7 +109,27 @@ fn server_error(msg: &str) -> Response {
     (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
 }
 
+/// Wall clock used by the server for every visible `ts` and
+/// `created_at` value.
+///
+/// When `TEST_FIXED_NOW` is set in the environment at process start,
+/// `now_ms()` returns the parsed integer for the entire process
+/// lifetime. This is the seam visual-regression tests use to stabilise
+/// timestamps in screenshots without freezing the runtime's wall
+/// clock. The lookup runs *once*, lazily, behind a `OnceLock` — flipping
+/// the env after startup has no effect.
+///
+/// See `.plan/2026-05-25-followup/testing.md` §5.
 pub(crate) fn now_ms() -> i64 {
+    static FIXED: std::sync::OnceLock<Option<i64>> = std::sync::OnceLock::new();
+    let fixed = FIXED.get_or_init(|| {
+        std::env::var("TEST_FIXED_NOW")
+            .ok()
+            .and_then(|v| v.parse::<i64>().ok())
+    });
+    if let Some(ts) = *fixed {
+        return ts;
+    }
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)

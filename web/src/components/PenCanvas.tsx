@@ -8,13 +8,16 @@ const CANVAS_WIDTH = 4096;
 const CANVAS_HEIGHT = 2304;
 
 function strokeToPath(stroke: PenStrokeSummary): string {
-  const points = stroke.points.map(([x, y, p]) => [x, y, p] as [number, number, number]);
+  const points = stroke.points.map(
+    ([x, y, p]) => [x, y, p] as [number, number, number],
+  );
   const outlinePoints = getStroke(points, {
     size: stroke.size,
     thinning: 0.5,
     smoothing: 0.5,
     streamline: 0.5,
-    simulatePressure: points.length === 0 || (points.length === 1 && points[0][2] === 0),
+    simulatePressure:
+      points.length === 0 || (points.length === 1 && points[0][2] === 0),
   });
 
   if (outlinePoints.length === 0) return "";
@@ -34,9 +37,24 @@ function strokeToPath(stroke: PenStrokeSummary): string {
 
 interface PenCanvasProps {
   strokes: PenStrokeSummary[];
-  inProgressStrokes: Map<string, { color: string; size: number; points: [number, number, number][] }>;
-  onStrokeBegin?: (boardId: string, strokeId: string, x: number, y: number, pressure: number) => void;
-  onStrokeAppend?: (boardId: string, strokeId: string, x: number, y: number, pressure: number) => void;
+  inProgressStrokes: Map<
+    string,
+    { color: string; size: number; points: [number, number, number][] }
+  >;
+  onStrokeBegin?: (
+    boardId: string,
+    strokeId: string,
+    x: number,
+    y: number,
+    pressure: number,
+  ) => void;
+  onStrokeAppend?: (
+    boardId: string,
+    strokeId: string,
+    x: number,
+    y: number,
+    pressure: number,
+  ) => void;
   onStrokeEnd?: (boardId: string, strokeId: string) => void;
   isHost?: boolean;
   boardId: string;
@@ -120,7 +138,9 @@ export function PenCanvas({
     return () => resizeObserver.disconnect();
   }, [draw]);
 
-  const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>): { x: number; y: number; pressure: number } => {
+  const getCanvasPoint = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+  ): { x: number; y: number; pressure: number } => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0, pressure: 0.5 };
     const rect = canvas.getBoundingClientRect();
@@ -159,7 +179,11 @@ export function PenCanvas({
   };
 
   return (
-    <div ref={containerRef} className="relative w-full overflow-hidden rounded" style={{ aspectRatio: "16/9" }}>
+    <div
+      ref={containerRef}
+      className="relative w-full overflow-hidden rounded"
+      style={{ aspectRatio: "16/9" }}
+    >
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}

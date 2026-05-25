@@ -63,7 +63,8 @@ export function TopicTree() {
 
   function handleAddTopic(title: string) {
     const tempId = crypto.randomUUID();
-    const afterId = rootTopics.length > 0 ? rootTopics[rootTopics.length - 1].id : null;
+    const afterId =
+      rootTopics.length > 0 ? rootTopics[rootTopics.length - 1].id : null;
     optimisticAddTopic(tempId, null, title, afterId);
     sendWsMsg({
       v: 1,
@@ -92,7 +93,10 @@ export function TopicTree() {
 
       {rootTopics.length === 0 ? (
         <p className="text-sm text-[rgb(var(--muted))]">
-          No topics yet. {isHost ? "Add one to get started." : "Waiting for host to add topics."}
+          No topics yet.{" "}
+          {isHost
+            ? "Add one to get started."
+            : "Waiting for host to add topics."}
         </p>
       ) : (
         <DndContext

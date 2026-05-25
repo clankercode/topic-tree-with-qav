@@ -34,37 +34,37 @@ export function Landing() {
           Docs
         </a>
       </header>
-    <main className="min-h-full flex items-center justify-center p-8">
-      <div className="max-w-xl w-full space-y-6 text-center">
-        <h1 className="text-4xl font-semibold tracking-tight">
-          topic-tree-with-qav
-        </h1>
-        <p className="text-[rgb(var(--muted))]">
-          Host-led, audience-interactive sessions.
-        </p>
-        <div>
-          <button
-            type="button"
-            onClick={onCreate}
-            disabled={busy}
-            className="px-4 py-2 rounded bg-[rgb(var(--accent))] text-white disabled:opacity-60"
-          >
-            {busy ? "Creating…" : "Create room"}
-          </button>
-        </div>
-        {error ? (
-          <p role="alert" className="text-sm text-red-500">
-            {error}
+      <main className="min-h-full flex items-center justify-center p-8">
+        <div className="max-w-xl w-full space-y-6 text-center">
+          <h1 className="text-4xl font-semibold tracking-tight">
+            topic-tree-with-qav
+          </h1>
+          <p className="text-[rgb(var(--muted))]">
+            Host-led, audience-interactive sessions.
           </p>
-        ) : null}
-        <section className="text-left space-y-2">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-[rgb(var(--muted))]">
-            Recent rooms
-          </h2>
-          <RecentRoomsList />
-        </section>
-      </div>
-    </main>
+          <div>
+            <button
+              type="button"
+              onClick={onCreate}
+              disabled={busy}
+              className="px-4 py-2 rounded bg-[rgb(var(--accent))] text-white disabled:opacity-60"
+            >
+              {busy ? "Creating…" : "Create room"}
+            </button>
+          </div>
+          {error ? (
+            <p role="alert" className="text-sm text-red-500">
+              {error}
+            </p>
+          ) : null}
+          <section className="text-left space-y-2">
+            <h2 className="text-sm font-medium uppercase tracking-wide text-[rgb(var(--muted))]">
+              Recent rooms
+            </h2>
+            <RecentRoomsList />
+          </section>
+        </div>
+      </main>
     </>
   );
 }

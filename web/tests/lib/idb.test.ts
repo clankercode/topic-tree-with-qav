@@ -44,7 +44,9 @@ describe("idb room registry", () => {
 
   it("upsert overwrites existing record by roomId", async () => {
     await upsertRoom(sampleAdmin({ title: "First" }));
-    await upsertRoom(sampleAdmin({ title: "Second", lastJoinedAt: 1_700_000_000_500 }));
+    await upsertRoom(
+      sampleAdmin({ title: "Second", lastJoinedAt: 1_700_000_000_500 }),
+    );
     const got = await getRoom("r1");
     expect(got?.title).toBe("Second");
     expect(got?.lastJoinedAt).toBe(1_700_000_000_500);

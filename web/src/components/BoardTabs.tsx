@@ -10,7 +10,12 @@ interface Props {
   onSelectBoard: (boardId: string) => void;
 }
 
-export function BoardTabs({ boards, focusedBoardId, isHost, onSelectBoard }: Props) {
+export function BoardTabs({
+  boards,
+  focusedBoardId,
+  isHost,
+  onSelectBoard,
+}: Props) {
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -117,7 +122,13 @@ function KindIcon({ kind }: { kind: string }) {
     return <Pencil className="w-4 h-4" />;
   }
   return (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg
+      className="w-4 h-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+    >
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <line x1="9" y1="9" x2="15" y2="15" />
       <line x1="15" y1="9" x2="9" y2="15" />

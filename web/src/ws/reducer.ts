@@ -48,7 +48,12 @@ export function applyServerMessage(msg: ServerMsg): void {
     }
     case "VoteUpdated": {
       const m = msg as Extract<ServerMsg, { type: "VoteUpdated" }>;
-      store.applyVoteUpdated(m.questionId, m.voteCount, m.voterGuestId, msg.seq);
+      store.applyVoteUpdated(
+        m.questionId,
+        m.voteCount,
+        m.voterGuestId,
+        msg.seq,
+      );
       return;
     }
     case "BoardCreated": {
@@ -78,12 +83,24 @@ export function applyServerMessage(msg: ServerMsg): void {
     }
     case "ExcalidrawDelta": {
       const m = msg as Extract<ServerMsg, { type: "ExcalidrawDelta" }>;
-      store.applyExcalidrawDelta(m.boardId, m.sceneVersion, m.elements, m.appState, msg.seq);
+      store.applyExcalidrawDelta(
+        m.boardId,
+        m.sceneVersion,
+        m.elements,
+        m.appState,
+        msg.seq,
+      );
       return;
     }
     case "ExcalidrawSceneReset": {
       const m = msg as Extract<ServerMsg, { type: "ExcalidrawSceneReset" }>;
-      store.applyExcalidrawSceneReset(m.boardId, m.sceneVersion, m.elements, m.appState, msg.seq);
+      store.applyExcalidrawSceneReset(
+        m.boardId,
+        m.sceneVersion,
+        m.elements,
+        m.appState,
+        msg.seq,
+      );
       return;
     }
     case "PenStrokeBegun": {
@@ -123,15 +140,24 @@ export function applyServerMessage(msg: ServerMsg): void {
     }
     case "CursorMoved": {
       const m = msg as Extract<ServerMsg, { type: "CursorMoved" }>;
-      store.applyCursorMoved(m.boardId, m.clientId, m.guestId, m.displayName, m.x, m.y);
+      store.applyCursorMoved(
+        m.boardId,
+        m.clientId,
+        m.guestId,
+        m.displayName,
+        m.x,
+        m.y,
+      );
       return;
     }
     case "Clicked": {
       const m = msg as Extract<ServerMsg, { type: "Clicked" }>;
       store.setLastSeq(msg.seq);
-      window.dispatchEvent(new CustomEvent(`click-ping-${m.boardId}`, {
-        detail: { x: m.x, y: m.y, displayName: m.displayName },
-      }));
+      window.dispatchEvent(
+        new CustomEvent(`click-ping-${m.boardId}`, {
+          detail: { x: m.x, y: m.y, displayName: m.displayName },
+        }),
+      );
       return;
     }
     case "HandsUpdated": {
@@ -142,7 +168,11 @@ export function applyServerMessage(msg: ServerMsg): void {
     case "QuestionPromotedToTopic": {
       const m = msg as Extract<ServerMsg, { type: "QuestionPromotedToTopic" }>;
       store.applyQuestionDeleted(m.questionId, msg.seq);
-      store.applyTopicTree([...store.topics, m.topic], store.activeTopicId, msg.seq);
+      store.applyTopicTree(
+        [...store.topics, m.topic],
+        store.activeTopicId,
+        msg.seq,
+      );
       return;
     }
     case "KickNotice": {

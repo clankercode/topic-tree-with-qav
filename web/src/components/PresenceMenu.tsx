@@ -19,13 +19,19 @@ export function PresenceMenu() {
       {otherGuests.map((guest) => (
         <div key={guest.guestId} className="relative">
           <button
-            onClick={() => setOpenGuestId(openGuestId === guest.guestId ? null : guest.guestId)}
+            onClick={() =>
+              setOpenGuestId(
+                openGuestId === guest.guestId ? null : guest.guestId,
+              )
+            }
             className="flex items-center gap-2 rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-3 py-1.5 text-sm hover:bg-[rgb(var(--border))]"
           >
             <span className={guest.muted ? "text-[rgb(var(--muted))]" : ""}>
               {guest.displayName}
             </span>
-            {guest.muted && <MicOff className="h-3 w-3 text-[rgb(var(--muted))]" />}
+            {guest.muted && (
+              <MicOff className="h-3 w-3 text-[rgb(var(--muted))]" />
+            )}
             <MoreHorizontal className="h-3 w-3" />
           </button>
           {openGuestId === guest.guestId && (

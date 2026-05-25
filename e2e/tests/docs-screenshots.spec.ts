@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-const OUT_DIR = "screenshots/_docs";
+// Docs screenshots live outside `screenshots/` so they are not
+// subject to the paired-light/dark constraint enforced by
+// scripts/check-snapshot-pairs.sh (CI gate). Visual regression for
+// the app proper goes through `screenshots/<spec>/<step>-light.png`
+// and `-dark.png` pairs via the helpers in `utils/snapshot.ts`.
+const OUT_DIR = ".docs-snapshots";
 
 async function addTopicViaModal(page: import("@playwright/test").Page, title: string) {
   await page.getByRole("button", { name: "Add topic" }).click();

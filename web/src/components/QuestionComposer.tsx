@@ -30,7 +30,10 @@ export function QuestionComposer({ onSubmitted }: QuestionComposerProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-2 rounded border border-[rgb(var(--border))] bg-[rgb(var(--background))] p-3">
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-2 rounded border border-[rgb(var(--border))] bg-[rgb(var(--background))] p-3"
+    >
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}

@@ -50,3 +50,13 @@
     -webkit-font-smoothing: antialiased;
   }
 }
+
+/* Visual-regression escape hatch. Elements that are visually noisy
+   between runs (live cursors, toasts, presence dots, timestamps) opt
+   into this class so snapshot tests can hide them via
+   `document.documentElement.classList.add('snapshot-mode')`. The
+   helper in e2e/utils/snapshot.ts toggles the root class before
+   shooting. */
+.snapshot-mode .hide-in-snapshots {
+  visibility: hidden !important;
+}

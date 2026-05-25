@@ -14,15 +14,23 @@ async fn create_room_returns_admin_token_and_room_id() {
 
     assert_eq!(room.room_id.len(), 12, "room id must be 12 b32 chars");
     assert!(
-        room.room_id.bytes().all(|b| matches!(b, b'A'..=b'Z' | b'2'..=b'7')),
+        room.room_id
+            .bytes()
+            .all(|b| matches!(b, b'A'..=b'Z' | b'2'..=b'7')),
         "room id must be base32 (A-Z, 2-7); got '{}'",
         room.room_id
     );
     assert!(room.admin_token.len() >= 16, "admin token too short");
-    assert_eq!(room.admin_url, format!("/r/{}?admin={}", room.room_id, room.admin_token));
+    assert_eq!(
+        room.admin_url,
+        format!("/r/{}?admin={}", room.room_id, room.admin_token)
+    );
     assert_eq!(room.join_url, format!("/r/{}", room.room_id));
     assert_eq!(room.title, "Plenary");
-    assert!(room.created_at > 0, "created_at should be a positive epoch ms");
+    assert!(
+        room.created_at > 0,
+        "created_at should be a positive epoch ms"
+    );
 }
 
 #[tokio::test]

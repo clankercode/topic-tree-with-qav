@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useSessionStore, type CursorPosition } from "../store";
 
-const EMPTY_CURSORS: Record<string, CursorPosition> = Object.freeze({}) as Record<string, CursorPosition>;
+const EMPTY_CURSORS: Record<string, CursorPosition> = Object.freeze(
+  {},
+) as Record<string, CursorPosition>;
 
 interface CursorProps {
   cursor: CursorPosition;
@@ -31,9 +33,7 @@ function Cursor({ cursor, targetX, targetY }: CursorProps) {
           strokeWidth="1"
         />
       </svg>
-      <span
-        className="ml-1 mt-0.5 whitespace-nowrap rounded-md bg-blue-500 px-1.5 py-0.5 text-xs font-medium text-white shadow-sm"
-      >
+      <span className="ml-1 mt-0.5 whitespace-nowrap rounded-md bg-blue-500 px-1.5 py-0.5 text-xs font-medium text-white shadow-sm">
         {cursor.displayName}
       </span>
     </div>
@@ -57,7 +57,12 @@ export function CursorLayer({
   const me = useSessionStore((s) => s.me);
   const tick = useSessionStore((s) => s.tick);
 
-  const positionsRef = useRef<Record<string, { current: { x: number; y: number }; target: { x: number; y: number } }>>({});
+  const positionsRef = useRef<
+    Record<
+      string,
+      { current: { x: number; y: number }; target: { x: number; y: number } }
+    >
+  >({});
   const rafRef = useRef<number>(0);
   const lastTickRef = useRef<number>(0);
 
@@ -99,7 +104,10 @@ export function CursorLayer({
       let needsUpdate = false;
 
       for (const [clientId, cursor] of Object.entries(cursors)) {
-        const pos = positions[clientId] ?? { current: { x: cursor.x, y: cursor.y }, target: { x: cursor.x, y: cursor.y } };
+        const pos = positions[clientId] ?? {
+          current: { x: cursor.x, y: cursor.y },
+          target: { x: cursor.x, y: cursor.y },
+        };
         pos.target = { x: cursor.x, y: cursor.y };
         positions[clientId] = pos;
       }
@@ -139,7 +147,9 @@ export function CursorLayer({
       {Object.entries(cursors)
         .filter(([clientId]) => clientId !== me?.clientId)
         .map(([clientId, cursor]) => {
-          const pos = positions[clientId] ?? { current: { x: cursor.x, y: cursor.y } };
+          const pos = positions[clientId] ?? {
+            current: { x: cursor.x, y: cursor.y },
+          };
           return (
             <Cursor
               key={clientId}

@@ -16,7 +16,10 @@ import { useSessionStore } from "../../src/store";
 
 let cursorLayerRenders = 0;
 
-function ProbeCursorLayer({ boardId, containerRef }: {
+function ProbeCursorLayer({
+  boardId,
+  containerRef,
+}: {
   boardId: string;
   containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
@@ -48,7 +51,10 @@ describe("CursorLayer F6 update-depth regression", () => {
 
     const { unmount } = render(
       <div ref={containerRef}>
-        <ProbeCursorLayer boardId="board-missing-from-cursors" containerRef={containerRef} />
+        <ProbeCursorLayer
+          boardId="board-missing-from-cursors"
+          containerRef={containerRef}
+        />
       </div>,
     );
 
@@ -87,7 +93,9 @@ describe("CursorLayer F6 update-depth regression", () => {
     };
 
     const first = select();
-    act(() => { useSessionStore.getState().tick(); });
+    act(() => {
+      useSessionStore.getState().tick();
+    });
     const second = select();
     expect(first).toBe(second);
   });

@@ -284,15 +284,10 @@ pub fn read_questions_for_test(
     .expect("collect")
 }
 
-pub fn read_boards_for_test(
-    db: &server::Db,
-    room_id: &str,
-) -> Vec<(String, String, String, f64)> {
+pub fn read_boards_for_test(db: &server::Db, room_id: &str) -> Vec<(String, String, String, f64)> {
     let conn = db.get().expect("checkout");
     let mut stmt = conn
-        .prepare(
-            "SELECT id, kind, title, ord FROM boards WHERE room_id = ?1 ORDER BY ord",
-        )
+        .prepare("SELECT id, kind, title, ord FROM boards WHERE room_id = ?1 ORDER BY ord")
         .expect("prepare");
     stmt.query_map([room_id], |r| {
         Ok((
@@ -307,10 +302,7 @@ pub fn read_boards_for_test(
     .expect("collect")
 }
 
-pub fn read_question_votes_for_test(
-    db: &server::Db,
-    question_id: &str,
-) -> Vec<(String, String)> {
+pub fn read_question_votes_for_test(db: &server::Db, question_id: &str) -> Vec<(String, String)> {
     let conn = db.get().expect("checkout");
     let mut stmt = conn
         .prepare(

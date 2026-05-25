@@ -807,8 +807,7 @@ impl Room {
             .iter()
             .rev()
             .find(|a| {
-                a.kind == PenActionKind::StrokeBegin
-                    && a.target_id.as_deref() == Some(stroke_id)
+                a.kind == PenActionKind::StrokeBegin && a.target_id.as_deref() == Some(stroke_id)
             })
             .map(|a| a.id.clone())?;
         Some((summary, action_id))
@@ -826,11 +825,7 @@ impl Room {
         let mut g = self.inner.lock().expect("room inner");
         let state = g.pen_boards.get_mut(board_id)?;
         let text_id = text.id.clone();
-        let prior = state
-            .texts
-            .iter()
-            .find(|t| t.id == text.id)
-            .cloned();
+        let prior = state.texts.iter().find(|t| t.id == text.id).cloned();
         if let Some(idx) = state.texts.iter().position(|t| t.id == text.id) {
             state.texts[idx] = text;
         } else {
@@ -1191,13 +1186,10 @@ impl RoomRegistry {
             .collect();
         let mut reaped = Vec::new();
         for id in candidates {
-            if let Some((_, room)) =
-                self.rooms
-                    .remove_if(&id, |_, room| {
-                        room.connected_client_count() == 0
-                            && now_ms.saturating_sub(room.last_activity_at()) > idle_threshold_ms
-                    })
-            {
+            if let Some((_, room)) = self.rooms.remove_if(&id, |_, room| {
+                room.connected_client_count() == 0
+                    && now_ms.saturating_sub(room.last_activity_at()) > idle_threshold_ms
+            }) {
                 reaped.push(room);
             }
         }
@@ -1417,7 +1409,7 @@ mod tests {
     fn reap_idle_drops_truly_idle_rooms() {
         let reg = RoomRegistry::default();
         let now = 11 * 60 * 1000; // 11 min in ms.
-        // Room A: no clients, last activity 0 (11 min idle) → reaped.
+                                  // Room A: no clients, last activity 0 (11 min idle) → reaped.
         let a = reg.get_or_create("a", "A", 0);
         a.touch(0);
         // Room B: no clients, last activity 6 min ago → kept.
@@ -2255,8 +2247,7 @@ mod tests {
         r.create_board(board, 100);
         r.pen_begin_stroke("b1", "s1".into(), "#000".into(), 4.0, 1000);
         r.pen_append_points("b1", "s1", vec![[0.0, 1.0, 2.0]]);
-        let (summary, action_id) =
-            r.pen_end_stroke("b1", "s1").expect("end returns Some");
+        let (summary, action_id) = r.pen_end_stroke("b1", "s1").expect("end returns Some");
         assert_eq!(summary.id, "s1");
         assert_eq!(summary.points.len(), 1);
         assert_eq!(summary.ord, 1);
@@ -2266,10 +2257,7 @@ mod tests {
         let begin = state
             .action_log
             .iter()
-            .find(|a| {
-                a.kind == PenActionKind::StrokeBegin
-                    && a.target_id.as_deref() == Some("s1")
-            })
+            .find(|a| a.kind == PenActionKind::StrokeBegin && a.target_id.as_deref() == Some("s1"))
             .expect("StrokeBegin action present");
         assert_eq!(begin.id, action_id);
     }
@@ -2294,8 +2282,9 @@ mod tests {
             color: "#000".into(),
             updated_at: 1000,
         };
-        let (_id1, prior_first) =
-            r.pen_text_upsert("b1", first.clone(), 1000).expect("insert");
+        let (_id1, prior_first) = r
+            .pen_text_upsert("b1", first.clone(), 1000)
+            .expect("insert");
         assert!(prior_first.is_none(), "first insert has no prior");
         let second = crate::proto::PenText {
             id: "t1".into(),
@@ -2306,8 +2295,7 @@ mod tests {
             color: "#111".into(),
             updated_at: 2000,
         };
-        let (_id2, prior_second) =
-            r.pen_text_upsert("b1", second, 2000).expect("overwrite");
+        let (_id2, prior_second) = r.pen_text_upsert("b1", second, 2000).expect("overwrite");
         let prior = prior_second.expect("overwrite returns prior");
         assert_eq!(prior, first, "prior must be exactly the first text");
     }

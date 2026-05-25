@@ -58,7 +58,9 @@ export function QuestionItem({ question, hasVoted }: QuestionItemProps) {
         />
       )}
       <div className="flex flex-1 flex-col gap-1">
-        <p className={`text-sm ${question.answered ? "text-[rgb(var(--muted))] line-through" : "text-[rgb(var(--foreground))]"}`}>
+        <p
+          className={`text-sm ${question.answered ? "text-[rgb(var(--muted))] line-through" : "text-[rgb(var(--foreground))]"}`}
+        >
           {question.text}
         </p>
         <div className="flex items-center gap-2 text-xs text-[rgb(var(--muted))]">
@@ -88,7 +90,9 @@ export function QuestionItem({ question, hasVoted }: QuestionItemProps) {
                 ? "text-[rgb(var(--success))] hover:bg-[rgb(var(--success))]/10"
                 : "text-[rgb(var(--muted))] hover:text-[rgb(var(--foreground))]"
             }`}
-            aria-label={question.answered ? "Mark as unanswered" : "Mark as answered"}
+            aria-label={
+              question.answered ? "Mark as unanswered" : "Mark as answered"
+            }
           >
             <Check size={14} />
           </button>
@@ -173,11 +177,17 @@ export function QuestionList({
     <div className="relative flex flex-1 flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto" ref={scrollRef} id="qa-list">
         {sorted.length === 0 ? (
-          <p className="py-8 text-center text-sm text-[rgb(var(--muted))]">No questions yet. Be the first to ask!</p>
+          <p className="py-8 text-center text-sm text-[rgb(var(--muted))]">
+            No questions yet. Be the first to ask!
+          </p>
         ) : (
           <div className="flex flex-col gap-2 p-1">
             {sorted.map((q) => (
-              <QuestionItem key={q.id} question={q} hasVoted={myVotes.has(q.id)} />
+              <QuestionItem
+                key={q.id}
+                question={q}
+                hasVoted={myVotes.has(q.id)}
+              />
             ))}
           </div>
         )}
@@ -198,7 +208,14 @@ export function QuestionList({
           className="absolute bottom-4 right-4 rounded-full bg-[rgb(var(--muted))] p-2 text-[rgb(var(--background))] shadow-lg hover:bg-[rgb(var(--foreground))]"
           aria-label="Jump to bottom"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <path d="M12 5v14M19 12l-7 7-7-7" />
           </svg>
         </button>

@@ -15,7 +15,8 @@ export function RaiseHandButton() {
   const isRaised = !!myHand;
 
   const wordCount = topic.trim().split(/\s+/).filter(Boolean).length;
-  const isValid = topic.trim().length > 0 && topic.length <= 80 && wordCount <= 10;
+  const isValid =
+    topic.trim().length > 0 && topic.length <= 80 && wordCount <= 10;
 
   function handleOpen() {
     setTopic(myHand?.topic ?? "");

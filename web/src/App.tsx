@@ -1,5 +1,5 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ToastContainer } from "./components/ToastContainer";
 import { About } from "./routes/About";
 import { GuestSession } from "./routes/GuestSession";
@@ -26,6 +26,29 @@ export function AppRoutes() {
   );
 }
 
+/// Marker for visual-regression tests. Once the initial render
+/// has committed and one frame has been painted, this element's
+/// `data-state` flips to `ready`. The connection-store layer adds a
+/// finer signal (`data-connection`) so room-bound screenshots can wait
+/// for `Welcome` to land before shooting. See
+/// `e2e/utils/snapshot.ts#awaitAppReady`.
+function AppReadyMarker() {
+  const [painted, setPainted] = useState(false);
+  const connectionStatus = useSessionStore((s) => s.connectionStatus);
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setPainted(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
+  return (
+    <div
+      data-testid="app-ready"
+      data-state={painted ? "ready" : "loading"}
+      data-connection={connectionStatus}
+      hidden
+    />
+  );
+}
+
 export function App() {
   const initTheme = useThemeStore((s) => s.init);
   const initFollowHost = useFollowHostStore((s) => s.init);
@@ -44,6 +67,7 @@ export function App() {
     <BrowserRouter>
       <AppRoutes />
       <ToastContainer />
+      <AppReadyMarker />
     </BrowserRouter>
   );
 }

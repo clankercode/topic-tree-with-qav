@@ -27,9 +27,13 @@ export function RecentRoomsList({ limit = 5 }: { limit?: number }) {
   return (
     <ul className="space-y-1" data-testid="recent-rooms">
       {shown.map((r) => {
-        const href = r.role === "admin" ? `/r/${r.roomId}/host` : `/r/${r.roomId}`;
+        const href =
+          r.role === "admin" ? `/r/${r.roomId}/host` : `/r/${r.roomId}`;
         return (
-          <li key={r.roomId} className="flex items-center justify-between gap-2">
+          <li
+            key={r.roomId}
+            className="flex items-center justify-between gap-2"
+          >
             <Link to={href} className="text-[rgb(var(--accent))] underline">
               {r.title || r.roomId}
             </Link>

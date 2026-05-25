@@ -68,10 +68,7 @@ fn spawn_idle_reaper(state: server::AppState) -> tokio::task::JoinHandle<()> {
             let now = chrono_like_now_ms();
             let reaped = state.rooms.reap_idle(now, IDLE_THRESHOLD_MS);
             if !reaped.is_empty() {
-                tracing::info!(
-                    count = reaped.len(),
-                    "reaped idle rooms",
-                );
+                tracing::info!(count = reaped.len(), "reaped idle rooms",);
             }
         }
     })

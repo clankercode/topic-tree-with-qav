@@ -125,28 +125,86 @@ export type ServerMsg =
       message: string;
       refId?: string;
     })
-  | (Envelope & { type: "TopicTreeUpdated"; topics: Topic[]; activeTopicId: string | null })
+  | (Envelope & {
+      type: "TopicTreeUpdated";
+      topics: Topic[];
+      activeTopicId: string | null;
+    })
   | (Envelope & { type: "QuestionAdded"; question: Question })
   | (Envelope & { type: "QuestionUpdated"; question: Question })
   | (Envelope & { type: "QuestionDeleted"; questionId: string })
-  | (Envelope & { type: "VoteUpdated"; questionId: string; voteCount: number; voterGuestId: string })
+  | (Envelope & {
+      type: "VoteUpdated";
+      questionId: string;
+      voteCount: number;
+      voterGuestId: string;
+    })
   | (Envelope & { type: "BoardCreated"; board: Board })
   | (Envelope & { type: "BoardUpdated"; board: Board })
   | (Envelope & { type: "BoardDeleted"; boardId: string })
   | (Envelope & { type: "FocusedBoardChanged"; boardId: string })
-  | (Envelope & { type: "ExcalidrawDelta"; boardId: string; sceneVersion: number; elements: unknown[]; appState: unknown })
-  | (Envelope & { type: "ExcalidrawSceneReset"; boardId: string; sceneVersion: number; elements: unknown[]; appState: unknown })
-  | (Envelope & { type: "PenStrokeBegun"; boardId: string; strokeId: string; color: string; size: number; authorClientId: string })
-  | (Envelope & { type: "PenStrokeAppended"; boardId: string; strokeId: string; points: [number, number, number][] })
+  | (Envelope & {
+      type: "ExcalidrawDelta";
+      boardId: string;
+      sceneVersion: number;
+      elements: unknown[];
+      appState: unknown;
+    })
+  | (Envelope & {
+      type: "ExcalidrawSceneReset";
+      boardId: string;
+      sceneVersion: number;
+      elements: unknown[];
+      appState: unknown;
+    })
+  | (Envelope & {
+      type: "PenStrokeBegun";
+      boardId: string;
+      strokeId: string;
+      color: string;
+      size: number;
+      authorClientId: string;
+    })
+  | (Envelope & {
+      type: "PenStrokeAppended";
+      boardId: string;
+      strokeId: string;
+      points: [number, number, number][];
+    })
   | (Envelope & { type: "PenStrokeEnded"; boardId: string; strokeId: string })
   | (Envelope & { type: "PenTextUpserted"; boardId: string; text: PenText })
   | (Envelope & { type: "PenTextDeleted"; boardId: string; textId: string })
   | (Envelope & { type: "PenCleared"; boardId: string })
-  | (Envelope & { type: "PenUndone"; boardId: string; removedStrokeId: string | null; removedTextId: string | null })
-  | (Envelope & { type: "CursorMoved"; boardId: string; clientId: string; guestId: string; displayName: string; x: number; y: number })
-  | (Envelope & { type: "Clicked"; boardId: string; clientId: string; guestId: string; displayName: string; x: number; y: number })
+  | (Envelope & {
+      type: "PenUndone";
+      boardId: string;
+      removedStrokeId: string | null;
+      removedTextId: string | null;
+    })
+  | (Envelope & {
+      type: "CursorMoved";
+      boardId: string;
+      clientId: string;
+      guestId: string;
+      displayName: string;
+      x: number;
+      y: number;
+    })
+  | (Envelope & {
+      type: "Clicked";
+      boardId: string;
+      clientId: string;
+      guestId: string;
+      displayName: string;
+      x: number;
+      y: number;
+    })
   | (Envelope & { type: "HandsUpdated"; hands: RaisedHand[] })
-  | (Envelope & { type: "QuestionPromotedToTopic"; questionId: string; topic: Topic })
+  | (Envelope & {
+      type: "QuestionPromotedToTopic";
+      questionId: string;
+      topic: Topic;
+    })
   | (Envelope & { type: "RoomSnapshot"; snapshot: RoomSnapshot })
   | (Envelope & { type: "KickNotice"; guestId: string })
   | (Envelope & { type: string; [k: string]: unknown });
@@ -170,7 +228,14 @@ export type ClientMsg =
   | { v: 1; id?: string; type: "LowerHand" }
   | { v: 1; id?: string; type: "CallOnHand"; guestId: string }
   | { v: 1; id?: string; type: "DismissHand"; guestId: string }
-  | { v: 1; id?: string; type: "PromoteQuestionToTopic"; questionId: string; parentTopicId?: string; afterTopicId?: string }
+  | {
+      v: 1;
+      id?: string;
+      type: "PromoteQuestionToTopic";
+      questionId: string;
+      parentTopicId?: string;
+      afterTopicId?: string;
+    }
   | { v: 1; id?: string; type: "Cursor"; boardId: string; x: number; y: number }
   | { v: 1; id?: string; type: "Click"; boardId: string; x: number; y: number }
   | { v: 1; id?: string; type: string; [k: string]: unknown };

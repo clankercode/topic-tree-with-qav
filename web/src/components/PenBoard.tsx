@@ -37,7 +37,10 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
   );
 
   const getAllInProgressForBoard = useCallback(() => {
-    const result = new Map<string, { color: string; size: number; points: [number, number, number][] }>();
+    const result = new Map<
+      string,
+      { color: string; size: number; points: [number, number, number][] }
+    >();
     penInProgressStrokes.forEach((v, k) => {
       if (k.startsWith(boardId + ":")) {
         const strokeId = k.split(":")[1];
@@ -48,7 +51,13 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
   }, [boardId, penInProgressStrokes]);
 
   const handleStrokeBegin = useCallback(
-    (_bid: string, strokeId: string, x: number, y: number, pressure: number) => {
+    (
+      _bid: string,
+      strokeId: string,
+      x: number,
+      y: number,
+      pressure: number,
+    ) => {
       const key = `${boardId}:${strokeId}`;
       useSessionStore.setState((state) => {
         const next = new Map(state.penInProgressStrokes);
@@ -72,7 +81,13 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
   );
 
   const handleStrokeAppend = useCallback(
-    (_bid: string, strokeId: string, x: number, y: number, pressure: number) => {
+    (
+      _bid: string,
+      strokeId: string,
+      x: number,
+      y: number,
+      pressure: number,
+    ) => {
       const key = `${boardId}:${strokeId}`;
       const newPoint: [number, number, number] = [x, y, pressure];
       useSessionStore.setState((state) => {
@@ -106,7 +121,14 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
   );
 
   const handleTextCommit = useCallback(
-    (textId: string, x: number, y: number, text: string, fontSize: number, textColor: string) => {
+    (
+      textId: string,
+      x: number,
+      y: number,
+      text: string,
+      fontSize: number,
+      textColor: string,
+    ) => {
       sendWsMsg({
         v: 1,
         type: "PenTextSet",
@@ -151,7 +173,10 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
           />
         </div>
       )}
-      <div className="relative flex-1 min-h-0 border border-[rgb(var(--border))] rounded overflow-hidden" ref={containerRef}>
+      <div
+        className="relative flex-1 min-h-0 border border-[rgb(var(--border))] rounded overflow-hidden"
+        ref={containerRef}
+      >
         <PenCanvas
           boardId={boardId}
           strokes={content.strokes}
@@ -177,10 +202,7 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
           onMouseMove={handleCursorMove}
           onMouseClick={handleClick}
         />
-        <ClickPingLayer
-          boardId={boardId}
-          containerRef={containerRef}
-        />
+        <ClickPingLayer boardId={boardId} containerRef={containerRef} />
       </div>
     </div>
   );

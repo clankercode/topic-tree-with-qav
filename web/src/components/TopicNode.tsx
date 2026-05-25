@@ -115,7 +115,8 @@ export function TopicNode({
           className="flex-1 rounded border border-[rgb(var(--border))] bg-[rgb(var(--background))] px-2 py-1 text-sm"
           onBlur={(e) => handleRename(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleRename((e.target as HTMLInputElement).value);
+            if (e.key === "Enter")
+              handleRename((e.target as HTMLInputElement).value);
             if (e.key === "Escape") onEndEdit();
           }}
         />
