@@ -16,7 +16,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
 
-use crate::proto::Topic;
+use crate::proto::{Question, Topic};
 
 mod embedded {
     refinery::embed_migrations!("./migrations");
@@ -240,6 +240,33 @@ pub enum WriteOpKind {
     DeleteTopic { topic_id: String },
     /// Update `rooms.active_topic_id`. `None` clears it.
     SetActiveTopic { topic_id: Option<String> },
+
+    /// Insert or update a question row. The `vote_count` field is
+    /// **not** persisted — it's a derived column computed from
+    /// `question_votes` on hydration.
+    UpsertQuestion { question: Question },
+    /// Flip `questions.answered`.
+    SetQuestionAnswered { question_id: String, answered: bool },
+    /// Delete a question. FK cascade removes its votes.
+    DeleteQuestion { question_id: String },
+    /// Record a guest's vote on a question. `INSERT OR IGNORE` keeps
+    /// dedup; broadcast count is the in-memory authoritative source.
+    AddVote {
+        question_id: String,
+        guest_id: String,
+        created_at: i64,
+    },
+    /// Remove a guest's vote.
+    RemoveVote {
+        question_id: String,
+        guest_id: String,
+    },
+    /// Atomic: insert a topic AND delete a question, one transaction.
+    /// See `.plan/2026-05-25-followup/persistence.md` §3 Questions.
+    PromoteQuestionToTopic {
+        question_id: String,
+        topic: Topic,
+    },
 }
 
 fn configure_connection(conn: &mut Connection) -> rusqlite::Result<()> {

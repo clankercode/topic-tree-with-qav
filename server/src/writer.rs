@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 use crate::db::{Db, DbError, WriteOp, WriteOpKind};
-use crate::proto::{Topic, TopicStatus};
+use crate::proto::{Question, Topic, TopicStatus};
 
 pub type WriteSender = UnboundedSender<WriteOp>;
 pub type WriteReceiver = UnboundedReceiver<WriteOp>;
@@ -109,6 +109,29 @@ pub(crate) fn apply_op_in_tx(tx: &Transaction<'_>, op: &WriteOp) -> Result<(), D
         WriteOpKind::SetActiveTopic { topic_id } => {
             apply_set_active_topic(tx, &op.room_id, topic_id.as_deref())
         }
+        WriteOpKind::UpsertQuestion { question } => {
+            apply_upsert_question(tx, &op.room_id, question)
+        }
+        WriteOpKind::SetQuestionAnswered {
+            question_id,
+            answered,
+        } => apply_set_question_answered(tx, question_id, *answered),
+        WriteOpKind::DeleteQuestion { question_id } => apply_delete_question(tx, question_id),
+        WriteOpKind::AddVote {
+            question_id,
+            guest_id,
+            created_at,
+        } => apply_add_vote(tx, question_id, guest_id, *created_at),
+        WriteOpKind::RemoveVote {
+            question_id,
+            guest_id,
+        } => apply_remove_vote(tx, question_id, guest_id),
+        WriteOpKind::PromoteQuestionToTopic { question_id, topic } => {
+            // Atomicity is implied by the surrounding Transaction — both
+            // rows land or neither does.
+            apply_upsert_topic(tx, &op.room_id, topic)?;
+            apply_delete_question(tx, question_id)
+        }
     }
 }
 
@@ -202,6 +225,82 @@ fn apply_set_active_topic(
     Ok(())
 }
 
+fn apply_upsert_question(
+    tx: &Transaction<'_>,
+    room_id: &str,
+    q: &Question,
+) -> Result<(), DbError> {
+    tx.execute(
+        "INSERT INTO questions (id, room_id, author_guest_id, author_name, anonymous, text, \
+                                answered, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+         ON CONFLICT(id) DO UPDATE SET \
+           author_guest_id = excluded.author_guest_id, \
+           author_name     = excluded.author_name, \
+           anonymous       = excluded.anonymous, \
+           text            = excluded.text, \
+           answered        = excluded.answered",
+        rusqlite::params![
+            q.id,
+            room_id,
+            q.author_guest_id,
+            q.author_name,
+            q.anonymous as i32,
+            q.text,
+            q.answered as i32,
+            q.created_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn apply_set_question_answered(
+    tx: &Transaction<'_>,
+    question_id: &str,
+    answered: bool,
+) -> Result<(), DbError> {
+    tx.execute(
+        "UPDATE questions SET answered = ?1 WHERE id = ?2",
+        rusqlite::params![answered as i32, question_id],
+    )?;
+    Ok(())
+}
+
+fn apply_delete_question(tx: &Transaction<'_>, question_id: &str) -> Result<(), DbError> {
+    tx.execute(
+        "DELETE FROM questions WHERE id = ?1",
+        rusqlite::params![question_id],
+    )?;
+    Ok(())
+}
+
+fn apply_add_vote(
+    tx: &Transaction<'_>,
+    question_id: &str,
+    guest_id: &str,
+    created_at: i64,
+) -> Result<(), DbError> {
+    // dedup is enforced by the PK (question_id, guest_id).
+    tx.execute(
+        "INSERT OR IGNORE INTO question_votes (question_id, guest_id, created_at) \
+         VALUES (?1, ?2, ?3)",
+        rusqlite::params![question_id, guest_id, created_at],
+    )?;
+    Ok(())
+}
+
+fn apply_remove_vote(
+    tx: &Transaction<'_>,
+    question_id: &str,
+    guest_id: &str,
+) -> Result<(), DbError> {
+    tx.execute(
+        "DELETE FROM question_votes WHERE question_id = ?1 AND guest_id = ?2",
+        rusqlite::params![question_id, guest_id],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,6 +313,20 @@ mod tests {
             [room_id],
         )
         .unwrap();
+    }
+
+    fn question(id: &str, room_id: &str, text: &str, author: &str) -> Question {
+        Question {
+            id: id.into(),
+            room_id: room_id.into(),
+            author_guest_id: author.into(),
+            author_name: author.into(),
+            anonymous: false,
+            text: text.into(),
+            answered: false,
+            created_at: 0,
+            vote_count: 0,
+        }
     }
 
     fn topic(id: &str, ord: f64) -> Topic {
@@ -460,6 +573,316 @@ mod tests {
             )
             .unwrap();
         assert!(active.is_none(), "set_active_topic(None) should clear");
+    }
+
+    #[test]
+    fn apply_upsert_question_inserts_then_updates() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMQ0000001");
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMQ0000001".into(),
+                kind: WriteOpKind::UpsertQuestion {
+                    question: question("q-1", "ROOMQ0000001", "first?", "alice"),
+                },
+            }],
+        );
+        let mut q2 = question("q-1", "ROOMQ0000001", "first (edited)", "alice");
+        q2.answered = true;
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMQ0000001".into(),
+                kind: WriteOpKind::UpsertQuestion { question: q2 },
+            }],
+        );
+        let conn = db.get().unwrap();
+        let (text, answered): (String, i32) = conn
+            .query_row(
+                "SELECT text, answered FROM questions WHERE id='q-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(text, "first (edited)");
+        assert_eq!(answered, 1);
+    }
+
+    #[test]
+    fn apply_add_vote_dedups_by_pk() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMV0000001");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMV0000001".into(),
+                    kind: WriteOpKind::UpsertQuestion {
+                        question: question("q", "ROOMV0000001", "?", "alice"),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMV0000001".into(),
+                    kind: WriteOpKind::AddVote {
+                        question_id: "q".into(),
+                        guest_id: "bob".into(),
+                        created_at: 100,
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMV0000001".into(),
+                    kind: WriteOpKind::AddVote {
+                        question_id: "q".into(),
+                        guest_id: "bob".into(),
+                        created_at: 200,
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMV0000001".into(),
+                    kind: WriteOpKind::AddVote {
+                        question_id: "q".into(),
+                        guest_id: "carol".into(),
+                        created_at: 300,
+                    },
+                },
+            ],
+        );
+        let conn = db.get().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM question_votes WHERE question_id='q'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2, "dup vote from bob must dedup; carol distinct");
+        let bob_ts: i64 = conn
+            .query_row(
+                "SELECT created_at FROM question_votes WHERE question_id='q' AND guest_id='bob'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(bob_ts, 100, "first AddVote wins; INSERT OR IGNORE skips the second");
+    }
+
+    #[test]
+    fn apply_remove_vote_drops_only_one_row() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMV0000002");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMV0000002".into(),
+                    kind: WriteOpKind::UpsertQuestion {
+                        question: question("q", "ROOMV0000002", "?", "alice"),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMV0000002".into(),
+                    kind: WriteOpKind::AddVote {
+                        question_id: "q".into(),
+                        guest_id: "bob".into(),
+                        created_at: 100,
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMV0000002".into(),
+                    kind: WriteOpKind::AddVote {
+                        question_id: "q".into(),
+                        guest_id: "carol".into(),
+                        created_at: 200,
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMV0000002".into(),
+                    kind: WriteOpKind::RemoveVote {
+                        question_id: "q".into(),
+                        guest_id: "bob".into(),
+                    },
+                },
+            ],
+        );
+        let conn = db.get().unwrap();
+        let voters: Vec<String> = conn
+            .prepare("SELECT guest_id FROM question_votes WHERE question_id='q' ORDER BY guest_id")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(voters, vec!["carol".to_string()]);
+    }
+
+    #[test]
+    fn apply_set_question_answered_toggles() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMQA000001");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMQA000001".into(),
+                    kind: WriteOpKind::UpsertQuestion {
+                        question: question("q", "ROOMQA000001", "?", "alice"),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMQA000001".into(),
+                    kind: WriteOpKind::SetQuestionAnswered {
+                        question_id: "q".into(),
+                        answered: true,
+                    },
+                },
+            ],
+        );
+        let conn = db.get().unwrap();
+        let answered: i32 = conn
+            .query_row(
+                "SELECT answered FROM questions WHERE id='q'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(answered, 1);
+    }
+
+    #[test]
+    fn apply_delete_question_cascades_votes() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMQDEL0001");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMQDEL0001".into(),
+                    kind: WriteOpKind::UpsertQuestion {
+                        question: question("q", "ROOMQDEL0001", "?", "alice"),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMQDEL0001".into(),
+                    kind: WriteOpKind::AddVote {
+                        question_id: "q".into(),
+                        guest_id: "bob".into(),
+                        created_at: 0,
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMQDEL0001".into(),
+                    kind: WriteOpKind::DeleteQuestion {
+                        question_id: "q".into(),
+                    },
+                },
+            ],
+        );
+        let conn = db.get().unwrap();
+        let qs: i64 = conn
+            .query_row("SELECT COUNT(*) FROM questions", [], |r| r.get(0))
+            .unwrap();
+        let vs: i64 = conn
+            .query_row("SELECT COUNT(*) FROM question_votes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(qs, 0);
+        assert_eq!(vs, 0, "FK cascade on questions(id) deletes votes");
+    }
+
+    #[test]
+    fn apply_promote_question_to_topic_is_atomic() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMPROM0001");
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPROM0001".into(),
+                kind: WriteOpKind::UpsertQuestion {
+                    question: question("q-source", "ROOMPROM0001", "ask?", "alice"),
+                },
+            }],
+        );
+
+        // Now promote: one WriteOp, one transaction, both rows must land.
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPROM0001".into(),
+                kind: WriteOpKind::PromoteQuestionToTopic {
+                    question_id: "q-source".into(),
+                    topic: topic("t-from-q", 0.0),
+                },
+            }],
+        );
+        let conn = db.get().unwrap();
+        let qs: i64 = conn
+            .query_row("SELECT COUNT(*) FROM questions", [], |r| r.get(0))
+            .unwrap();
+        let ts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM topics WHERE id='t-from-q'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(qs, 0, "source question should be gone");
+        assert_eq!(ts, 1, "promoted topic should be present");
+    }
+
+    #[test]
+    fn apply_promote_rolls_back_if_topic_violates_fk() {
+        // Both rows must land in one tx. We force a failure on the topic
+        // insert (bad parent_id) and assert the question is still present.
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMPROMERR1");
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPROMERR1".into(),
+                kind: WriteOpKind::UpsertQuestion {
+                    question: question("q-keep", "ROOMPROMERR1", "?", "alice"),
+                },
+            }],
+        );
+
+        // Topic insert with a parent_id that doesn't exist → FK violation.
+        let mut bad_topic = topic("t-bad", 0.0);
+        bad_topic.parent_id = Some("nonexistent".into());
+
+        {
+            let mut writer = db.acquire_writer_conn().unwrap();
+            let tx = writer.transaction().unwrap();
+            let result = apply_op_in_tx(
+                &tx,
+                &WriteOp {
+                    room_id: "ROOMPROMERR1".into(),
+                    kind: WriteOpKind::PromoteQuestionToTopic {
+                        question_id: "q-keep".into(),
+                        topic: bad_topic,
+                    },
+                },
+            );
+            assert!(result.is_err(), "FK violation must surface");
+            // Even though `apply_upsert_topic` runs first and errors, the
+            // outer transaction is rolled back when we drop it without
+            // commit (the apply order is topic → delete; if it were
+            // reversed the rollback still saves us).
+            drop(tx);
+        } // drop writer → return :memory: pool slot before the read below
+
+        let conn = db.get().unwrap();
+        let qs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM questions WHERE id='q-keep'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let ts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM topics WHERE id='t-bad'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(qs, 1, "tx must roll back: question survives");
+        assert_eq!(ts, 0, "tx must roll back: topic never landed");
     }
 
     #[tokio::test]
