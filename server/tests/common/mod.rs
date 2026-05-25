@@ -64,7 +64,7 @@ impl TestApp {
     /// a second server over the same data.
     pub async fn spawn_with_db(db: server::Db) -> Self {
         let metrics = server::create_metrics();
-        let state = server::AppState::new(db.clone(), metrics);
+        let state = server::AppState::new_detached(db.clone(), metrics);
 
         let http_router = server::app_with_state(state.clone());
         let ws_router = server::app_with_state(state.clone());

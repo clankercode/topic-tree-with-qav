@@ -28,13 +28,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         server::Db::open_path(&database_path)?
     };
-    let state = server::AppState::new(db, metrics);
+    let (state, writer_join) = server::AppState::new(db, metrics);
 
     let _excalidraw_reset_task = server::ws::spawn_excalidraw_scene_reset_task(state.clone());
 
-    axum::serve(listener, server::app_with_state(state))
+    axum::serve(listener, server::app_with_state(state.clone()))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+
+    // Graceful shutdown drain: dropping `state` releases this scope's
+    // writer_tx clone. Any other clones (held by closed-out ws
+    // sessions) drop as their futures finish. Then the writer's
+    // `rx.recv()` returns None and the task exits.
+    drop(state);
+    match tokio::time::timeout(server::writer::SHUTDOWN_DRAIN_TIMEOUT, writer_join).await {
+        Ok(Ok(())) => tracing::info!("writer task drained cleanly"),
+        Ok(Err(e)) => tracing::error!(error = %e, "writer task join failed"),
+        Err(_) => tracing::warn!(
+            "writer task did not drain within {:?}",
+            server::writer::SHUTDOWN_DRAIN_TIMEOUT
+        ),
+    }
     Ok(())
 }
 

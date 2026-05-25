@@ -25,10 +25,13 @@ pub fn app_with_state(state: AppState) -> Router {
 }
 
 /// Convenience for tests + the binary: build an in-memory app.
+///
+/// The single-writer task is spawned but its join handle is detached
+/// (acceptable for tests; binaries should use `AppState::new` directly).
 pub fn app_in_memory() -> Result<Router, DbError> {
     let db = Db::open_in_memory()?;
     let metrics = create_metrics();
-    Ok(app_with_state(AppState::new(db, metrics)))
+    Ok(app_with_state(AppState::new_detached(db, metrics)))
 }
 
 /// Backwards-compatible facade used by the existing http smoke tests.
