@@ -8,16 +8,12 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { QuestionComposer } from "../../src/components/QuestionComposer";
 import { useSessionStore } from "../../src/store";
-import {
-  resolvePendingSubmit,
-  sendWsMsg,
-} from "../../src/ws/manager";
+import { resolvePendingSubmit, sendWsMsg } from "../../src/ws/manager";
 
 vi.mock("../../src/ws/manager", async () => {
-  const actual =
-    await vi.importActual<typeof import("../../src/ws/manager")>(
-      "../../src/ws/manager",
-    );
+  const actual = await vi.importActual<typeof import("../../src/ws/manager")>(
+    "../../src/ws/manager",
+  );
   return {
     ...actual,
     sendWsMsg: vi.fn(),
@@ -35,8 +31,9 @@ describe("QuestionComposer.G5 — draft rollback on error", () => {
 
   it("clears input on Ack matching the submission's refId", () => {
     render(<QuestionComposer />);
-    const input = screen.getByPlaceholderText("Ask a question...") as
-      HTMLTextAreaElement;
+    const input = screen.getByPlaceholderText(
+      "Ask a question...",
+    ) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "Hello?" } });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
 
@@ -51,8 +48,9 @@ describe("QuestionComposer.G5 — draft rollback on error", () => {
 
   it("restores input on Error{code:'rate_limit'}", () => {
     render(<QuestionComposer />);
-    const input = screen.getByPlaceholderText("Ask a question...") as
-      HTMLTextAreaElement;
+    const input = screen.getByPlaceholderText(
+      "Ask a question...",
+    ) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "Spam?" } });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
     expect(input.value).toBe("");
@@ -73,8 +71,9 @@ describe("QuestionComposer.G5 — draft rollback on error", () => {
 
   it("restores input on Error{code:'muted'}", () => {
     render(<QuestionComposer />);
-    const input = screen.getByPlaceholderText("Ask a question...") as
-      HTMLTextAreaElement;
+    const input = screen.getByPlaceholderText(
+      "Ask a question...",
+    ) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "Question while muted" } });
     fireEvent.click(screen.getByRole("button", { name: /submit/i }));
     expect(input.value).toBe("");

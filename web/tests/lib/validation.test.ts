@@ -21,16 +21,8 @@ describe("countTopicWords", () => {
     ["foo bar", 2, "NBSP separator"],
     ["foo‍bar", 1, "zero-width joiner does NOT split"],
     ["foo-bar", 1, "hyphen is part of the word"],
-    [
-      "a b c d e f g h i j",
-      10,
-      "exactly ten words allowed",
-    ],
-    [
-      "a b c d e f g h i j k",
-      11,
-      "eleven words exceeds limit",
-    ],
+    ["a b c d e f g h i j", 10, "exactly ten words allowed"],
+    ["a b c d e f g h i j k", 11, "eleven words exceeds limit"],
   ])("counts %s as %d (%s)", (input, expected) => {
     expect(countTopicWords(input)).toBe(expected);
   });

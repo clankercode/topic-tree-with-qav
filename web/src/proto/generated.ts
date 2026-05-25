@@ -128,6 +128,17 @@ export type ClientMsg =
       afterTopicId: string | null;
     }
   | {
+      type: "ImportTopicTree";
+      v: number;
+      id: string | null;
+      /**
+       * Attach the imported roots under this existing topic. `None`
+       * imports at the room's top level.
+       */
+      parentTopicId: string | null;
+      topics: Array<ImportedTopicNode>;
+    }
+  | {
       type: "PenStrokeBegin";
       v: number;
       id: string | null;
@@ -194,6 +205,18 @@ export type Guest = {
   displayName: string;
   muted: boolean;
   joinedAt: bigint;
+};
+
+/**
+ * Portable topic-tree node used by `ImportTopicTree`. The schema is
+ * intentionally minimal — title + status + children — so an LLM
+ * agent can author one from a copied prompt. `id` is **not** part
+ * of this shape; the server generates fresh UUIDs on import.
+ */
+export type ImportedTopicNode = {
+  title: string;
+  status: TopicStatus;
+  children: Array<ImportedTopicNode>;
 };
 
 export type PenStrokeSummary = {

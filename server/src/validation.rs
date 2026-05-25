@@ -23,6 +23,75 @@ pub const MAX_RAISE_HAND_TOPIC_WORDS: usize = 10;
 /// Maximum allowed length (chars) of a raise-hand topic.
 pub const MAX_RAISE_HAND_TOPIC_LEN: usize = 80;
 
+/// Task #13: bounds for `ImportTopicTree`. A malicious or buggy
+/// import could otherwise create thousands of nested topics and
+/// overwhelm the room's in-memory state + every connected client's
+/// renderer.
+pub const MAX_IMPORT_TOPICS: usize = 500;
+pub const MAX_IMPORT_DEPTH: usize = 10;
+pub const MAX_TOPIC_TITLE_LEN: usize = 200;
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ImportValidationError {
+    #[error("imported tree is empty")]
+    Empty,
+    #[error("imported tree has {0} nodes; max is {MAX_IMPORT_TOPICS}")]
+    TooManyTopics(usize),
+    #[error("imported tree is {0} levels deep; max is {MAX_IMPORT_DEPTH}")]
+    TooDeep(usize),
+    #[error("a topic title is empty")]
+    EmptyTitle,
+    #[error("a topic title exceeds {MAX_TOPIC_TITLE_LEN} chars")]
+    TitleTooLong,
+}
+
+/// Validate an imported topic tree before it touches the in-memory
+/// model or the writer. Walks the full tree counting nodes + depth
+/// and checking each title length.
+pub fn validate_imported_topics<T: ImportedTopicLike>(
+    topics: &[T],
+) -> Result<(), ImportValidationError> {
+    if topics.is_empty() {
+        return Err(ImportValidationError::Empty);
+    }
+    let mut total = 0usize;
+    fn walk<T: ImportedTopicLike>(
+        nodes: &[T],
+        depth: usize,
+        total: &mut usize,
+    ) -> Result<(), ImportValidationError> {
+        if depth > MAX_IMPORT_DEPTH {
+            return Err(ImportValidationError::TooDeep(depth));
+        }
+        for n in nodes {
+            *total += 1;
+            if *total > MAX_IMPORT_TOPICS {
+                return Err(ImportValidationError::TooManyTopics(*total));
+            }
+            let title = n.title().trim();
+            if title.is_empty() {
+                return Err(ImportValidationError::EmptyTitle);
+            }
+            if title.chars().count() > MAX_TOPIC_TITLE_LEN {
+                return Err(ImportValidationError::TitleTooLong);
+            }
+            walk(n.children(), depth + 1, total)?;
+        }
+        Ok(())
+    }
+    walk(topics, 1, &mut total)
+}
+
+/// Small trait so `validate_imported_topics` works against both the
+/// proto type and unit-test fixtures without dragging proto into
+/// this module.
+pub trait ImportedTopicLike {
+    fn title(&self) -> &str;
+    fn children(&self) -> &[Self]
+    where
+        Self: Sized;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

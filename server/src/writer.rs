@@ -130,6 +130,15 @@ pub(crate) fn apply_op_in_tx(tx: &Transaction<'_>, op: &WriteOp) -> Result<(), D
             apply_upsert_topic(tx, &op.room_id, topic)?;
             apply_delete_question(tx, question_id)
         }
+        WriteOpKind::BulkUpsertTopics { topics } => {
+            // Topics are pre-ordered so parents precede children — the
+            // surrounding Transaction guarantees atomicity, so a FK
+            // failure on row N rolls rows 0..N back together.
+            for topic in topics {
+                apply_upsert_topic(tx, &op.room_id, topic)?;
+            }
+            Ok(())
+        }
         WriteOpKind::UpsertBoard { board } => apply_upsert_board(tx, &op.room_id, board),
         WriteOpKind::RenameBoard { board_id, title } => apply_rename_board(tx, board_id, title),
         WriteOpKind::DeleteBoard { board_id } => apply_delete_board(tx, board_id),

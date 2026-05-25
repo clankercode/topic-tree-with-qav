@@ -63,6 +63,38 @@ pub struct Topic {
     pub created_at: i64,
 }
 
+/// Portable topic-tree node used by `ImportTopicTree`. The schema is
+/// intentionally minimal — title + status + children — so an LLM
+/// agent can author one from a copied prompt. `id` is **not** part
+/// of this shape; the server generates fresh UUIDs on import.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts-gen", derive(TS))]
+#[cfg_attr(
+    feature = "ts-gen",
+    ts(export, export_to = "../../web/src/proto/generated.ts")
+)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedTopicNode {
+    pub title: String,
+    #[serde(default = "default_topic_status")]
+    pub status: TopicStatus,
+    #[serde(default)]
+    pub children: Vec<ImportedTopicNode>,
+}
+
+fn default_topic_status() -> TopicStatus {
+    TopicStatus::Pending
+}
+
+impl crate::validation::ImportedTopicLike for ImportedTopicNode {
+    fn title(&self) -> &str {
+        &self.title
+    }
+    fn children(&self) -> &[Self] {
+        &self.children
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts-gen", derive(TS))]
 #[cfg_attr(
@@ -460,6 +492,23 @@ pub enum ClientMsg {
         #[serde(skip_serializing_if = "Option::is_none")]
         after_topic_id: Option<String>,
     },
+    /// Task #13: bulk import a portable topic tree under an optional
+    /// existing parent. Atomic on the server: validates depth + count
+    /// caps in-memory, then creates every node + persists in one
+    /// transaction. Subtree shapes are described by
+    /// `ImportedTopicNode`; see `IMPORT_TOPIC_TREE_SCHEMA` for the
+    /// canonical schema the UI's "copy schema" button hands to LLM
+    /// agents.
+    ImportTopicTree {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        /// Attach the imported roots under this existing topic. `None`
+        /// imports at the room's top level.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parent_topic_id: Option<String>,
+        topics: Vec<ImportedTopicNode>,
+    },
     PenStrokeBegin {
         v: u8,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -798,6 +847,7 @@ mod proto_export_tests {
         Board::export().expect("export Board");
         PenText::export().expect("export PenText");
         PenStrokeSummary::export().expect("export PenStrokeSummary");
+        ImportedTopicNode::export().expect("export ImportedTopicNode");
         RoomSnapshot::export().expect("export RoomSnapshot");
         ClientMsg::export().expect("export ClientMsg");
         ServerMsg::export().expect("export ServerMsg");

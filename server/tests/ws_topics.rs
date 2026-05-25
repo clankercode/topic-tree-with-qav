@@ -118,6 +118,109 @@ async fn set_active_topic_marks_previous_active_as_done() {
     assert_eq!(t2.4, "pending", "newly active topic stays pending");
 }
 
+/// Task #13: bulk import of a nested topic tree is atomic + assigns
+/// parent_id correctly. Root + 2 children + 1 grandchild should
+/// produce 4 topic rows where child.parent_id == root.id.
+#[tokio::test]
+async fn import_topic_tree_creates_nested_structure_in_one_shot() {
+    let app = TestApp::spawn().await;
+    let room = app.create_room(None).await;
+    let mut host = app.connect_ws(&room.room_id).await;
+    host.send_json(&host_hello("h", "Host", &room.admin_token))
+        .await;
+    let _ = host
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Welcome")
+        .await;
+
+    host.send_json(&serde_json::json!({
+        "type": "ImportTopicTree",
+        "v": 1,
+        "id": "imp-1",
+        "topics": [
+            {
+                "title": "Plenary",
+                "status": "pending",
+                "children": [
+                    {
+                        "title": "Intro",
+                        "status": "done",
+                        "children": [
+                            { "title": "Goals", "status": "pending", "children": [] }
+                        ]
+                    },
+                    { "title": "Deep dive", "status": "pending", "children": [] }
+                ]
+            }
+        ],
+    }))
+    .await;
+    let _ = host
+        .await_msg(Duration::from_secs(2), |v| {
+            v["type"] == "Ack" && v["refId"] == "imp-1"
+        })
+        .await;
+
+    // Wait for the writer to land all 4 rows.
+    let db_for_poll = app.db.clone();
+    let room_id_for_poll = room.room_id.clone();
+    await_until(
+        "4 imported topics to commit",
+        Duration::from_secs(2),
+        || read_topics_for_test(&db_for_poll, &room_id_for_poll).len() == 4,
+    )
+    .await;
+    let rows = read_topics_for_test(&app.db, &room.room_id);
+    assert_eq!(rows.len(), 4);
+    let plenary = rows.iter().find(|(_, _, t, _, _)| t == "Plenary").unwrap();
+    let intro = rows.iter().find(|(_, _, t, _, _)| t == "Intro").unwrap();
+    let goals = rows.iter().find(|(_, _, t, _, _)| t == "Goals").unwrap();
+    assert_eq!(plenary.1, None, "root topic has no parent");
+    assert_eq!(
+        intro.1.as_ref(),
+        Some(&plenary.0),
+        "Intro's parent must be Plenary's id"
+    );
+    assert_eq!(
+        goals.1.as_ref(),
+        Some(&intro.0),
+        "Goals' parent must be Intro's id"
+    );
+    assert_eq!(intro.4, "done", "imported status preserved");
+}
+
+/// Task #13: invalid imports are rejected before mutation. An empty
+/// `topics` payload should error out with no rows written.
+#[tokio::test]
+async fn import_topic_tree_rejects_empty_payload() {
+    let app = TestApp::spawn().await;
+    let room = app.create_room(None).await;
+    let mut host = app.connect_ws(&room.room_id).await;
+    host.send_json(&host_hello("h", "Host", &room.admin_token))
+        .await;
+    let _ = host
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Welcome")
+        .await;
+
+    host.send_json(&serde_json::json!({
+        "type": "ImportTopicTree",
+        "v": 1,
+        "id": "imp-empty",
+        "topics": [],
+    }))
+    .await;
+    let err = host
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Error")
+        .await;
+    assert_eq!(err["refId"], "imp-empty");
+    assert_eq!(err["code"], "bad_request");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let rows = read_topics_for_test(&app.db, &room.room_id);
+    assert!(
+        rows.is_empty(),
+        "no topics should have landed; got {rows:?}"
+    );
+}
+
 /// Regression: a host attempting `AddTopic` with a parent_id that
 /// points at no known topic must be rejected with `bad_request`
 /// *before* the in-memory mutation or writer enqueue. Without this,

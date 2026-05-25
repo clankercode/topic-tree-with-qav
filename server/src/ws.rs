@@ -1963,6 +1963,106 @@ async fn handle_text(
             }
             Ok(())
         }
+        ClientMsg::ImportTopicTree {
+            id,
+            parent_topic_id,
+            topics: imported,
+            ..
+        } => {
+            if role != Role::Host {
+                let _ = send(
+                    sink,
+                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
+                )
+                .await;
+                return Ok(());
+            }
+            if let Err(e) = crate::validation::validate_imported_topics(&imported) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::BAD_REQUEST,
+                        &format!("{e}"),
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+            // Anchor parent must already exist when supplied; same FK
+            // pre-check as the singular AddTopic path.
+            let known_topics = room.topics();
+            if let Some(p) = parent_topic_id.as_ref() {
+                if !known_topics.iter().any(|t| &t.id == p) {
+                    let _ = send(
+                        sink,
+                        &error_frame(
+                            error_codes::BAD_REQUEST,
+                            "parent_topic_id refers to a topic that no longer exists",
+                            id,
+                            room.current_seq(),
+                        ),
+                    )
+                    .await;
+                    return Ok(());
+                }
+            }
+            let now = now_ms();
+            let base_ord = if parent_topic_id.is_some() {
+                // Append after siblings at this parent level.
+                known_topics
+                    .iter()
+                    .filter(|t| t.parent_id == parent_topic_id)
+                    .map(|t| t.ord)
+                    .fold(0.0f64, f64::max)
+                    + 1.0
+            } else {
+                known_topics.iter().map(|t| t.ord).fold(0.0f64, f64::max) + 1.0
+            };
+            // Walk the imported tree depth-first, generating UUIDs +
+            // ord values. Parent appears before child in `flat`.
+            fn flatten(
+                nodes: &[crate::proto::ImportedTopicNode],
+                parent_id: Option<String>,
+                depth_base_ord: f64,
+                now: i64,
+                out: &mut Vec<Topic>,
+            ) {
+                let mut ord = depth_base_ord;
+                for node in nodes {
+                    let id = Uuid::new_v4().to_string();
+                    out.push(Topic {
+                        id: id.clone(),
+                        parent_id: parent_id.clone(),
+                        title: node.title.trim().to_string(),
+                        ord,
+                        status: node.status,
+                        created_at: now,
+                    });
+                    // Children's ords are local to their level —
+                    // start at 1.0 since order within a sibling group
+                    // is sufficient (parent_id distinguishes them).
+                    flatten(&node.children, Some(id), 1.0, now, out);
+                    ord += 1.0;
+                }
+            }
+            let mut flat: Vec<Topic> = Vec::new();
+            flatten(&imported, parent_topic_id.clone(), base_ord, now, &mut flat);
+            room.add_topics_bulk(flat.clone());
+            broadcast_topic_tree(room);
+            enqueue_write(state, room, WriteOpKind::BulkUpsertTopics { topics: flat });
+            if let Some(rid) = id {
+                let ack = ServerMsg::Ack {
+                    v: PROTOCOL_VERSION,
+                    ts: now_ms(),
+                    seq: room.current_seq(),
+                    ref_id: rid,
+                };
+                let _ = send(sink, &ack).await;
+            }
+            Ok(())
+        }
         ClientMsg::PenStrokeBegin {
             id,
             board_id,

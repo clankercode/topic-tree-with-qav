@@ -346,6 +346,16 @@ impl Room {
         g.topics.insert(topic.id.clone(), topic);
     }
 
+    /// Bulk insert a pre-resolved batch of topics. Used by the import
+    /// path: the caller has already generated UUIDs, set parent_id and
+    /// ord, so this is a single locked map insertion.
+    pub fn add_topics_bulk(&self, topics: Vec<Topic>) {
+        let mut g = self.inner.lock().expect("room inner");
+        for t in topics {
+            g.topics.insert(t.id.clone(), t);
+        }
+    }
+
     pub fn rename_topic(&self, topic_id: &str, title: String) -> bool {
         let mut g = self.inner.lock().expect("room inner");
         let Some(t) = g.topics.get_mut(topic_id) else {

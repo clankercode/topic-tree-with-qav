@@ -18,6 +18,7 @@ import { sendWsMsg } from "../ws/manager";
 import { TopicNode } from "./TopicNode";
 import { Plus } from "lucide-react";
 import { AddTopicModal } from "./AddTopicModal";
+import { TopicTreeImportExport } from "./TopicTreeImportExport";
 import type { Topic } from "../ws/types";
 import {
   TopicChildrenProvider,
@@ -101,16 +102,19 @@ export function TopicTree() {
 
   return (
     <section className="rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-4">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-2">
         <h2 className="text-lg font-medium">Topics</h2>
         {isHost && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1 rounded bg-[rgb(var(--primary))] px-3 py-1 text-sm font-medium text-[rgb(var(--primary-fg))] hover:opacity-90"
-          >
-            <Plus size={16} />
-            Add topic
-          </button>
+          <div className="flex items-center gap-2">
+            <TopicTreeImportExport />
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-1 rounded bg-[rgb(var(--primary))] px-3 py-1 text-sm font-medium text-[rgb(var(--primary-fg))] hover:opacity-90"
+            >
+              <Plus size={16} />
+              Add topic
+            </button>
+          </div>
         )}
       </div>
 

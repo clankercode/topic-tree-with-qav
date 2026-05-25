@@ -119,7 +119,9 @@ export function RaiseHandButton() {
                 </span>
                 <span
                   className={
-                    topic.length > MAX_RAISE_HAND_TOPIC_LEN ? "text-red-500" : ""
+                    topic.length > MAX_RAISE_HAND_TOPIC_LEN
+                      ? "text-red-500"
+                      : ""
                   }
                 >
                   {topic.length}/{MAX_RAISE_HAND_TOPIC_LEN} chars

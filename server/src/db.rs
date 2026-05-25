@@ -265,6 +265,13 @@ pub enum WriteOpKind {
     /// See `.plan/2026-05-25-followup/persistence.md` §3 Questions.
     PromoteQuestionToTopic { question_id: String, topic: Topic },
 
+    /// Task #13: bulk-insert a pre-resolved tree of topics in one
+    /// transaction. The caller has already generated UUIDs and
+    /// resolved every parent_id in topological order (parent row
+    /// precedes child row in the Vec). Atomic so a malformed import
+    /// never leaves a partial tree on disk.
+    BulkUpsertTopics { topics: Vec<Topic> },
+
     /// Insert or update a board row.
     UpsertBoard { board: Board },
     /// Rename only.
