@@ -53,6 +53,16 @@ pub struct WriteOp {
 
 > Add new variants by editing this file first, then wiring the writer arm, then the intent handler. Out-of-order edits will be rejected in review.
 
+### Explicitly non-persistent intents
+
+The following client→server intents intentionally have **no** `WriteOpKind` variant. They are documented here so a future reader doesn't accidentally add one:
+
+- `SetDisplayName` — display name is per-connection presence state, surfaced via `PresenceUpdate`. There is no `guests` table in the data model. A guest who reconnects re-supplies their name in `Hello`.
+- `RaiseHand` / `LowerHand` / `CallOnHand` / `DismissHand` — `hands` are ephemeral, cleared on disconnect (`../2026-05-24-amber-falcon/data-model.md` §3).
+- `CursorMove` / `Click` — pure presence, never persisted.
+- `GetSnapshot` / `Pong` / `Hello` — read-only / handshake / heartbeat.
+- `rooms.last_active_at` — bumped lazily by `Db::set_kicked` / `set_muted`; not on every intent. Idle reaping uses the in-memory `Room::last_activity_at` atomic instead.
+
 ### Rooms
 
 | Variant | Notes |
@@ -94,6 +104,10 @@ pub struct WriteOp {
 
 Strokes are written **once per stroke**, on `PenStrokeEnd`, with the fully-formed stroke (points + final `ord`). Intermediate `PenStrokeBegin`/`PenStrokeAppend` stay in-memory only. Rationale: per-point writes would explode WAL volume and risk persisting truncated strokes if the connection drops mid-stroke.
 
+> **Same-transaction invariant (load-bearing)**: every pen variant below writes **both** the data mutation (`pen_strokes` / `pen_texts`) **and** the corresponding `pen_actions` row + `payload_json` inside *one* `rusqlite::Transaction`. Splitting them would corrupt undo: a crash between the two writes leaves an action row whose `payload_json` doesn't match the current data state, and `PenUndo` would then apply the inverse against the wrong base. Reviewers must verify this in F1.7.
+
+> **`pen_actions.ord` allocation**: monotonic per board. The writer **must** allocate `ord` at apply time (read `MAX(ord) + 1 WHERE board_id = ?`) inside the same transaction, not at enqueue time on the ws side. Two parallel handlers enqueueing two strokes would otherwise collide on the same `ord`.
+
 | Variant | Notes |
 |---|---|
 | `InsertCompletedPenStroke { stroke: PenStrokeSummary, action_id }` | Emitted only on `PenStrokeEnd`. Writes `pen_strokes` row + a `pen_actions` row (`kind="stroke_add"`, `target_id=stroke.id`, `payload_json=NULL`). |
@@ -125,22 +139,35 @@ Strokes are written **once per stroke**, on `PenStrokeEnd`, with the fully-forme
 2. **`Db` exposes `clone_for_writer() -> Connection`** that under `:memory:` returns a clone from the existing pool's single connection; under file mode opens a fresh one. Honors the data-model.md §3 invariant.
 3. **The writer holds a pool checkout** (`r2d2::PooledConnection`) for its lifetime. Simplest but blocks one pool slot forever — fine when pool size is `num_cpus`, breaks `:memory:` size-1 mode.
 
-**Default to option 2** unless the reviewer surfaces a blocker: it matches data-model.md §3's invariant ("the read pool + write task share that single connection" in :memory: mode) and keeps file-mode connections cleanly separated.
+**Decision (recorded after pre-F1 review)**: option 2, but framed accurately for each mode. `r2d2_sqlite::SqliteConnectionManager::memory()` creates a **fresh anonymous database on every connect**, which is exactly why `open_in_memory()` forces `max_size(1)`. That has two implications the original framing glossed over:
 
-Implementation sketch:
+- In `:memory:` mode, the writer **cannot** hold the pool's only connection for the lifetime of the loop — readers would deadlock. The writer **borrows** the connection per batch: `checkout → drain → commit → return`. The loop owns the `mpsc` receiver, not the connection.
+- In file mode, the writer **owns** its own connection on spawn (a fresh handle via `SqliteConnectionManager::file(path)`) and holds it for the process lifetime. Readers continue to use the r2d2 pool.
+
+The two modes are encapsulated behind a single API:
 
 ```rust
 impl Db {
-    pub fn clone_for_writer(&self) -> Result<rusqlite::Connection, DbError> {
-        // file mode: open a fresh connection on the same path
-        // :memory: mode: pull from the size-1 pool and keep it owned
-    }
+    /// Acquire the writer's connection handle.
+    ///
+    /// File mode: returns a freshly-opened, configured `Connection` that
+    /// the writer owns for the rest of its life.
+    ///
+    /// `:memory:` mode: returns a borrowed `PooledConnection` from the
+    /// size-1 pool. The writer must drop it between batches so reads
+    /// can run.
+    pub fn acquire_writer_conn(&self) -> Result<WriterConn, DbError>;
+}
+
+pub enum WriterConn {
+    Owned(rusqlite::Connection),       // file mode
+    Pooled(DbConn),                    // :memory: mode (DbConn = r2d2 PooledConnection)
 }
 ```
 
-To detect mode without storing a path, expose `Db::is_in_memory(&self) -> bool` by querying a checked-out connection's `PRAGMA database_list`. Alternative: store the path/mode tag on `Db` (cheapest).
+The writer loop calls `acquire_writer_conn()` **once per batch** (cheap in file mode if the `Owned` variant is wrapped in an `Option<Connection>` cache; cheap in `:memory:` mode because `r2d2.get()` on a size-1 pool is just a mutex). The drain-then-commit pattern stays the same in both modes; only the connection lifecycle differs.
 
-> **Outcome**: this section records the decision **after** the reviewer signs off. Update before merging F1.
+To detect mode, store a `mode: DbMode` discriminator on `Db` at construction time (`open_path` → `DbMode::File`, `open_in_memory` → `DbMode::Memory`). Cheaper than `PRAGMA database_list`.
 
 ## 5. Schema delta — required new migrations
 
@@ -203,7 +230,9 @@ pub fn load_full_room_state(
 ) -> Result<RoomHydrationBundle, DbError> { /* … */ }
 ```
 
-Implementation lives in `server/src/db.rs`. Queries (one tx, one transaction-level snapshot):
+Implementation lives in `server/src/db.rs`. **Must wrap all queries in a single `conn.transaction()?`** (`BEGIN DEFERRED` is fine — we hold the read snapshot until commit). Without an explicit transaction the six `SELECT`s run on autocommit and a concurrent writer batch can interleave, producing a half-old / half-new bundle.
+
+Queries (one tx, one transaction-level snapshot):
 
 1. `SELECT id,title,active_topic_id,focused_board_id FROM rooms WHERE id=?1`
 2. `SELECT * FROM topics WHERE room_id=?1 ORDER BY parent_id, ord`

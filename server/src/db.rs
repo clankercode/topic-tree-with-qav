@@ -161,6 +161,50 @@ mod tests {
     }
 
     #[test]
+    fn migrations_create_v5_excalidraw_scenes_and_v6_payload_json() {
+        let db = Db::open_in_memory().expect("open");
+        let conn = db.get().unwrap();
+
+        // V0005: excalidraw_scenes table with the four required columns.
+        let scenes: i64 = conn
+            .query_row("SELECT COUNT(*) FROM excalidraw_scenes", [], |r| r.get(0))
+            .expect("excalidraw_scenes table exists");
+        assert_eq!(scenes, 0);
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(excalidraw_scenes)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        for required in [
+            "board_id",
+            "scene_version",
+            "elements_json",
+            "app_state_json",
+            "updated_at",
+        ] {
+            assert!(
+                cols.iter().any(|c| c == required),
+                "missing column {required} on excalidraw_scenes; have {cols:?}"
+            );
+        }
+
+        // V0006: pen_actions gains a payload_json column.
+        let pen_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(pen_actions)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(
+            pen_cols.iter().any(|c| c == "payload_json"),
+            "pen_actions missing payload_json; have {pen_cols:?}"
+        );
+    }
+
+    #[test]
     fn foreign_keys_pragma_is_on() {
         let db = Db::open_in_memory().unwrap();
         let conn = db.get().unwrap();
