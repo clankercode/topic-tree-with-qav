@@ -1330,14 +1330,15 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
-            let room_id = room.id.clone();
-            let target = target_guest_id.clone();
-            let db = state.db.clone();
-            task::spawn_blocking(move || {
-                if let Err(e) = db.set_kicked(&room_id, &target, true) {
-                    tracing::error!(error = %e, room_id = %room_id, "failed to persist kick");
-                }
-            });
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::SetKicked {
+                    guest_id: target_guest_id.clone(),
+                    kicked: true,
+                    updated_at: now_ms(),
+                },
+            );
             room.kick_guest(&target_guest_id);
             let seq = room.next_seq();
             let kick_notice = ServerMsg::KickNotice {
@@ -1373,15 +1374,15 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
-            let room_id = room.id.clone();
-            let target = target_guest_id.clone();
-            let db = state.db.clone();
-            let muted_flag = muted;
-            task::spawn_blocking(move || {
-                if let Err(e) = db.set_muted(&room_id, &target, muted_flag) {
-                    tracing::error!(error = %e, room_id = %room_id, "failed to persist mute");
-                }
-            });
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::SetMuted {
+                    guest_id: target_guest_id.clone(),
+                    muted,
+                    updated_at: now_ms(),
+                },
+            );
             room.set_muted(&target_guest_id, muted);
             broadcast_presence(room);
             if let Some(rid) = id {
@@ -1432,6 +1433,13 @@ async fn handle_text(
             };
             room.create_board(board.clone(), now);
             broadcast_board_created(room, &board);
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::UpsertBoard {
+                    board: board.clone(),
+                },
+            );
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -1471,9 +1479,17 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
-            match room.rename_board(&board_id, title) {
+            match room.rename_board(&board_id, title.clone()) {
                 Some(board) => {
                     broadcast_board_updated(room, &board);
+                    enqueue_write(
+                        state,
+                        room,
+                        WriteOpKind::RenameBoard {
+                            board_id: board_id.clone(),
+                            title,
+                        },
+                    );
                 }
                 None => {
                     let _ = send(
@@ -1523,6 +1539,13 @@ async fn handle_text(
                 return Ok(());
             }
             broadcast_board_deleted(room, &board_id);
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::DeleteBoard {
+                    board_id: board_id.clone(),
+                },
+            );
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -1558,6 +1581,13 @@ async fn handle_text(
             }
             room.set_focused_board(board_id.clone());
             broadcast_focused_board_changed(room, &board_id);
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::SetFocusedBoard {
+                    board_id: Some(board_id.clone()),
+                },
+            );
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -1600,6 +1630,19 @@ async fn handle_text(
                         scene_version,
                         &elements,
                         &app_state,
+                    );
+                    enqueue_write(
+                        state,
+                        room,
+                        WriteOpKind::UpsertExcalidrawScene {
+                            board_id: board_id.clone(),
+                            scene_version,
+                            elements_json: serde_json::to_string(&elements)
+                                .unwrap_or_else(|_| "[]".into()),
+                            app_state_json: serde_json::to_string(&app_state)
+                                .unwrap_or_else(|_| "{}".into()),
+                            updated_at: now,
+                        },
                     );
                 }
                 crate::room::ExcalidrawUpdateOutcome::Stale => {
