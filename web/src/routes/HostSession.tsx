@@ -6,9 +6,10 @@ import { ConnectionBanner } from "../components/ConnectionBanner";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { PresenceMenu } from "../components/PresenceMenu";
 import { RoomSessionTabs } from "../components/RoomSessionTabs";
+import { SessionErrorView } from "../components/SessionErrorView";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { getRoom, type RoomRecord } from "../lib/idb";
-import { setWsClient, sendWsMsg } from "../ws/manager";
+import { setWsClient, sendWsMsg, stopWsClient } from "../ws/manager";
 import { useSessionStore } from "../store";
 import { WsClient } from "../ws/client";
 import type { SortMode } from "../components/SortToggle";
@@ -23,6 +24,8 @@ export function HostSession() {
   const [showHandsPopup, setShowHandsPopup] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const { topics, activeTopicId, hands } = useSessionStore();
+  const sessionError = useSessionStore((s) => s.sessionError);
+  const clearSessionError = useSessionStore((s) => s.clearSessionError);
   const setConnectionStatus = useSessionStore((s) => s.setConnectionStatus);
   const prevHandsCountRef = useRef(hands.length);
 
@@ -56,6 +59,7 @@ export function HostSession() {
       }
       setRecord(room);
 
+      clearSessionError();
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws?room=${roomId}`;
       client = new WsClient({
@@ -64,10 +68,6 @@ export function HostSession() {
           role: "host",
           guestId: room.hostGuestId ?? room.guest?.guestId ?? "",
           adminToken: room.adminToken,
-        },
-        onOpen: () => {
-          console.log("host ws connected");
-          setConnectionStatus("connected");
         },
         onClose: () => {
           console.log("host ws disconnected");
@@ -78,16 +78,15 @@ export function HostSession() {
           setConnectionStatus("disconnected");
         },
       });
-      client.start();
       setConnectionStatus("connecting");
+      client.start();
       setWsClient(client);
     });
     return () => {
       alive = false;
-      setWsClient(null);
-      client?.stop();
+      stopWsClient();
     };
-  }, [roomId, setConnectionStatus]);
+  }, [roomId, setConnectionStatus, clearSessionError]);
 
   // Keyboard shortcuts for host: j = next pending, k = previous
   useEffect(() => {
@@ -154,6 +153,10 @@ export function HostSession() {
   }
 
   if (!record || !roomId) return <Navigate to="/" replace />;
+
+  if (sessionError) {
+    return <SessionErrorView error={sessionError} roomId={roomId} />;
+  }
 
   const joinUrl = `${window.location.origin}/r/${roomId}`;
   const adminUrl = `${joinUrl}?admin=${encodeURIComponent(record.adminToken ?? "")}`;

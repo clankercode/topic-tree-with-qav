@@ -2,8 +2,10 @@ export const PEN_INK_PRIMARY = "#000000";
 export const PEN_INK_INVERSE = "#ffffff";
 
 export function resolvePenColor(color: string, isDark: boolean): string {
-  if (color === PEN_INK_PRIMARY) return isDark ? PEN_INK_INVERSE : PEN_INK_PRIMARY;
-  if (color === PEN_INK_INVERSE) return isDark ? PEN_INK_PRIMARY : PEN_INK_INVERSE;
+  if (color === PEN_INK_PRIMARY)
+    return isDark ? PEN_INK_INVERSE : PEN_INK_PRIMARY;
+  if (color === PEN_INK_INVERSE)
+    return isDark ? PEN_INK_PRIMARY : PEN_INK_INVERSE;
   return color;
 }
 

@@ -4,11 +4,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PreviewGuestEntry } from "../../src/routes/PreviewGuestEntry";
-import {
-  __resetIdbForTests,
-  getRoom,
-  mergeRoomHost,
-} from "../../src/lib/idb";
+import { __resetIdbForTests, getRoom, mergeRoomHost } from "../../src/lib/idb";
 import { getPreviewGuest } from "../../src/lib/previewGuest";
 
 function resetIdb() {
@@ -37,7 +33,9 @@ describe("PreviewGuestEntry", () => {
           <Route path="/r/:roomId/preview" element={<PreviewGuestEntry />} />
           <Route
             path="/r/:roomId/preview/guest"
-            element={<div data-testid="preview-guest-route">preview session</div>}
+            element={
+              <div data-testid="preview-guest-route">preview session</div>
+            }
           />
         </Routes>
       </MemoryRouter>,

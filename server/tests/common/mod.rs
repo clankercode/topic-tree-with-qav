@@ -52,6 +52,11 @@ pub struct TestApp {
     pub server_handle: JoinHandle<()>,
 }
 
+pub struct HttpJsonResponse {
+    pub status: StatusCode,
+    pub body: serde_json::Value,
+}
+
 impl TestApp {
     /// Boot with a fresh in-memory database.
     pub async fn spawn() -> Self {
@@ -117,6 +122,33 @@ impl TestApp {
             .expect("collect body")
             .to_bytes();
         serde_json::from_slice(&bytes).expect("decode CreateRoomResp")
+    }
+
+    pub async fn get_room(&self, room_id: &str) -> HttpJsonResponse {
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/api/rooms/{room_id}"))
+            .body(Body::empty())
+            .expect("build request");
+        let resp = self
+            .http_router
+            .clone()
+            .oneshot(req)
+            .await
+            .expect("oneshot");
+        let status = resp.status();
+        let bytes = resp
+            .into_body()
+            .collect()
+            .await
+            .expect("collect body")
+            .to_bytes();
+        let body = if bytes.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&bytes).expect("decode json body")
+        };
+        HttpJsonResponse { status, body }
     }
 
     /// Open a raw WebSocket connection to `/ws?room=<room_id>`. The caller

@@ -82,6 +82,9 @@ function db(): Promise<IDBPDatabase> {
       },
       blocked() {
         dbPromise = null;
+        throw new Error(
+          "Database blocked by another tab. Close other tabs using this app and retry.",
+        );
       },
       blocking() {
         dbPromise = null;
@@ -89,6 +92,9 @@ function db(): Promise<IDBPDatabase> {
       terminated() {
         dbPromise = null;
       },
+    }).catch((err) => {
+      dbPromise = null;
+      throw err;
     });
   }
   return dbPromise;

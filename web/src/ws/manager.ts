@@ -1,9 +1,15 @@
+import type { WsClient } from "./client";
 import type { ClientMsg } from "./types";
 
-let clientRef: { send: (msg: ClientMsg) => void } | null = null;
+let clientRef: WsClient | null = null;
 
-export function setWsClient(client: { send: (msg: ClientMsg) => void } | null) {
+export function setWsClient(client: WsClient | null) {
   clientRef = client;
+}
+
+export function stopWsClient(): void {
+  clientRef?.stop();
+  clientRef = null;
 }
 
 export function sendWsMsg(msg: ClientMsg) {

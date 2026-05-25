@@ -126,6 +126,17 @@ describe("WsClient", () => {
     client.stop();
   });
 
+  it("sets connectionStatus to connected after Welcome even if connecting ran after open", () => {
+    const client = makeClient();
+    useSessionStore.getState().setConnectionStatus("connecting");
+    client.start();
+    sockets[0].open();
+    expect(useSessionStore.getState().connectionStatus).toBe("connecting");
+    sockets[0].receive(welcomeJson(1));
+    expect(useSessionStore.getState().connectionStatus).toBe("connected");
+    client.stop();
+  });
+
   it("sends GetSnapshot when seq has a gap", () => {
     const client = makeClient();
     client.start();

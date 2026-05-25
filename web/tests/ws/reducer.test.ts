@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSessionStore } from "../../src/store";
 import { applyServerMessage } from "../../src/ws/reducer";
+import * as manager from "../../src/ws/manager";
 import type {
   Guest,
   Question,
@@ -93,6 +94,7 @@ describe("ws reducer", () => {
     expect(s.me).toEqual({ clientId: "c1", role: "guest", guestId: "g1" });
     expect(s.presence).toHaveLength(1);
     expect(s.lastSeq).toBe(5n);
+    expect(s.connectionStatus).toBe("connected");
   });
 
   it("PresenceUpdate replaces guest list and advances seq", () => {
@@ -515,7 +517,10 @@ describe("ws reducer", () => {
 
   it("host ignores PenStrokeBegun echo so local points are not wiped", () => {
     applyServerMessage(
-      welcome(1n, snapshot({ you: { clientId: "c1", role: "host", guestId: "h1" } })),
+      welcome(
+        1n,
+        snapshot({ you: { clientId: "c1", role: "host", guestId: "h1" } }),
+      ),
     );
     const key = "b1:s1";
     useSessionStore.setState({
@@ -547,7 +552,10 @@ describe("ws reducer", () => {
 
   it("host ignores PenStrokeAppended echo so points are not duplicated", () => {
     applyServerMessage(
-      welcome(1n, snapshot({ you: { clientId: "c1", role: "host", guestId: "h1" } })),
+      welcome(
+        1n,
+        snapshot({ you: { clientId: "c1", role: "host", guestId: "h1" } }),
+      ),
     );
     const key = "b1:s1";
     useSessionStore.setState({
@@ -577,7 +585,10 @@ describe("ws reducer", () => {
 
   it("host still applies PenStrokeEnded to finalize stroke", () => {
     applyServerMessage(
-      welcome(1n, snapshot({ you: { clientId: "c1", role: "host", guestId: "h1" } })),
+      welcome(
+        1n,
+        snapshot({ you: { clientId: "c1", role: "host", guestId: "h1" } }),
+      ),
     );
     const key = "b1:s1";
     useSessionStore.setState({
@@ -774,5 +785,25 @@ describe("ws reducer", () => {
       type: "UnknownMessageType",
     } as ServerMsg);
     expect(useSessionStore.getState().lastSeq).toBe(7n);
+  });
+
+  it("room_not_found sets sessionError and stops ws client", () => {
+    const stopSpy = vi
+      .spyOn(manager, "stopWsClient")
+      .mockImplementation(() => {});
+    applyServerMessage(welcome(1n));
+    applyServerMessage({
+      v: 1,
+      ts: 0n,
+      seq: 2n,
+      type: "Error",
+      code: "room_not_found",
+      message: "no such room",
+    });
+    const s = useSessionStore.getState();
+    expect(s.sessionError).toBe("room_not_found");
+    expect(s.connectionStatus).toBe("disconnected");
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+    stopSpy.mockRestore();
   });
 });
