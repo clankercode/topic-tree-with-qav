@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 use crate::db::{Db, DbError, WriteOp, WriteOpKind};
-use crate::proto::{Board, BoardKind, Question, Topic, TopicStatus};
+use crate::proto::{Board, BoardKind, PenStrokeSummary, PenText, Question, Topic, TopicStatus};
 
 pub type WriteSender = UnboundedSender<WriteOp>;
 pub type WriteReceiver = UnboundedReceiver<WriteOp>;
@@ -162,6 +162,44 @@ pub(crate) fn apply_op_in_tx(tx: &Transaction<'_>, op: &WriteOp) -> Result<(), D
             muted,
             updated_at,
         } => apply_set_muted(tx, &op.room_id, guest_id, *muted, *updated_at),
+        WriteOpKind::InsertCompletedPenStroke {
+            board_id,
+            stroke,
+            action_id,
+            created_at,
+        } => apply_insert_completed_pen_stroke(tx, board_id, stroke, action_id, *created_at),
+        WriteOpKind::UpsertPenText {
+            board_id,
+            text,
+            action_id,
+            before_json,
+            created_at,
+        } => apply_upsert_pen_text(tx, board_id, text, action_id, before_json.as_deref(), *created_at),
+        WriteOpKind::DeletePenText {
+            board_id,
+            text_id,
+            action_id,
+            before_json,
+            created_at,
+        } => apply_delete_pen_text(tx, board_id, text_id, action_id, before_json, *created_at),
+        WriteOpKind::PenClear {
+            board_id,
+            action_id,
+            before_strokes_json,
+            before_texts_json,
+            created_at,
+        } => apply_pen_clear(
+            tx,
+            board_id,
+            action_id,
+            before_strokes_json,
+            before_texts_json,
+            *created_at,
+        ),
+        WriteOpKind::PenUndo {
+            board_id,
+            target_action_id,
+        } => apply_pen_undo(tx, board_id, target_action_id),
     }
 }
 
@@ -460,6 +498,336 @@ fn apply_set_muted(
     Ok(())
 }
 
+// ─────────────── Pen ───────────────
+//
+// Same-transaction invariant: each variant writes BOTH the data row AND
+// the matching pen_actions row (incl. payload_json for undo) inside the
+// surrounding tx. Splitting them would corrupt undo state. See
+// `.plan/2026-05-25-followup/persistence.md` §3 Pen.
+
+fn next_pen_action_ord(tx: &Transaction<'_>, board_id: &str) -> Result<i64, DbError> {
+    let max: Option<i64> = tx
+        .query_row(
+            "SELECT MAX(ord) FROM pen_actions WHERE board_id = ?1",
+            rusqlite::params![board_id],
+            |r| r.get(0),
+        )
+        .ok();
+    Ok(max.unwrap_or(0) + 1)
+}
+
+fn write_pen_action(
+    tx: &Transaction<'_>,
+    action_id: &str,
+    board_id: &str,
+    kind: &str,
+    target_id: Option<&str>,
+    payload_json: Option<&str>,
+    created_at: i64,
+) -> Result<(), DbError> {
+    let ord = next_pen_action_ord(tx, board_id)?;
+    tx.execute(
+        "INSERT INTO pen_actions (id, board_id, kind, target_id, ord, created_at, payload_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![action_id, board_id, kind, target_id, ord, created_at, payload_json],
+    )?;
+    Ok(())
+}
+
+fn apply_insert_completed_pen_stroke(
+    tx: &Transaction<'_>,
+    board_id: &str,
+    stroke: &PenStrokeSummary,
+    action_id: &str,
+    created_at: i64,
+) -> Result<(), DbError> {
+    let points_json = serde_json::to_string(&stroke.points).map_err(|e| {
+        DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+    })?;
+    tx.execute(
+        "INSERT INTO pen_strokes (id, board_id, color, size, points_json, ord, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            stroke.id,
+            board_id,
+            stroke.color,
+            stroke.size,
+            points_json,
+            stroke.ord as i64,
+            stroke.created_at,
+        ],
+    )?;
+    write_pen_action(
+        tx,
+        action_id,
+        board_id,
+        "stroke_begin",
+        Some(&stroke.id),
+        None,
+        created_at,
+    )?;
+    Ok(())
+}
+
+fn apply_upsert_pen_text(
+    tx: &Transaction<'_>,
+    board_id: &str,
+    text: &PenText,
+    action_id: &str,
+    before_json: Option<&str>,
+    created_at: i64,
+) -> Result<(), DbError> {
+    tx.execute(
+        "INSERT INTO pen_texts (id, board_id, x, y, text, font_size, color, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+         ON CONFLICT(id) DO UPDATE SET \
+           x          = excluded.x, \
+           y          = excluded.y, \
+           text       = excluded.text, \
+           font_size  = excluded.font_size, \
+           color      = excluded.color, \
+           updated_at = excluded.updated_at",
+        rusqlite::params![
+            text.id,
+            board_id,
+            text.x,
+            text.y,
+            text.text,
+            text.font_size,
+            text.color,
+            text.updated_at,
+        ],
+    )?;
+    write_pen_action(
+        tx,
+        action_id,
+        board_id,
+        "text_set",
+        Some(&text.id),
+        before_json,
+        created_at,
+    )?;
+    Ok(())
+}
+
+fn apply_delete_pen_text(
+    tx: &Transaction<'_>,
+    board_id: &str,
+    text_id: &str,
+    action_id: &str,
+    before_json: &str,
+    created_at: i64,
+) -> Result<(), DbError> {
+    tx.execute(
+        "DELETE FROM pen_texts WHERE id = ?1 AND board_id = ?2",
+        rusqlite::params![text_id, board_id],
+    )?;
+    write_pen_action(
+        tx,
+        action_id,
+        board_id,
+        "text_delete",
+        Some(text_id),
+        Some(before_json),
+        created_at,
+    )?;
+    Ok(())
+}
+
+fn apply_pen_clear(
+    tx: &Transaction<'_>,
+    board_id: &str,
+    action_id: &str,
+    before_strokes_json: &str,
+    before_texts_json: &str,
+    created_at: i64,
+) -> Result<(), DbError> {
+    tx.execute(
+        "DELETE FROM pen_strokes WHERE board_id = ?1",
+        rusqlite::params![board_id],
+    )?;
+    tx.execute(
+        "DELETE FROM pen_texts WHERE board_id = ?1",
+        rusqlite::params![board_id],
+    )?;
+    let payload = serde_json::json!({
+        "strokes": serde_json::from_str::<serde_json::Value>(before_strokes_json).unwrap_or(serde_json::Value::Array(vec![])),
+        "texts": serde_json::from_str::<serde_json::Value>(before_texts_json).unwrap_or(serde_json::Value::Array(vec![])),
+    });
+    let payload_str = payload.to_string();
+    write_pen_action(
+        tx,
+        action_id,
+        board_id,
+        "clear",
+        None,
+        Some(&payload_str),
+        created_at,
+    )?;
+    Ok(())
+}
+
+fn apply_pen_undo(
+    tx: &Transaction<'_>,
+    board_id: &str,
+    target_action_id: &str,
+) -> Result<(), DbError> {
+    // Read the action's snapshot first; abort if the row is gone (no-op).
+    let (kind, target_id, payload): (String, Option<String>, Option<String>) = match tx
+        .query_row(
+            "SELECT kind, target_id, payload_json FROM pen_actions \
+             WHERE id = ?1 AND board_id = ?2",
+            rusqlite::params![target_action_id, board_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ) {
+        Ok(row) => row,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+
+    match kind.as_str() {
+        "stroke_begin" => {
+            if let Some(stroke_id) = target_id {
+                tx.execute(
+                    "DELETE FROM pen_strokes WHERE id = ?1 AND board_id = ?2",
+                    rusqlite::params![stroke_id, board_id],
+                )?;
+            }
+        }
+        "text_set" => match (target_id.as_deref(), payload.as_deref()) {
+            (Some(text_id), Some(prev)) => {
+                // Restore the prior text state.
+                let prev_text: PenText = serde_json::from_str(prev).map_err(|e| {
+                    DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+                })?;
+                tx.execute(
+                    "INSERT INTO pen_texts (id, board_id, x, y, text, font_size, color, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+                     ON CONFLICT(id) DO UPDATE SET \
+                       x = excluded.x, y = excluded.y, text = excluded.text, \
+                       font_size = excluded.font_size, color = excluded.color, \
+                       updated_at = excluded.updated_at",
+                    rusqlite::params![
+                        prev_text.id,
+                        board_id,
+                        prev_text.x,
+                        prev_text.y,
+                        prev_text.text,
+                        prev_text.font_size,
+                        prev_text.color,
+                        prev_text.updated_at,
+                    ],
+                )?;
+                // Belt-and-braces: if the prev row had a different id (it shouldn't),
+                // also drop the post-action row.
+                if prev_text.id != text_id {
+                    tx.execute(
+                        "DELETE FROM pen_texts WHERE id = ?1 AND board_id = ?2",
+                        rusqlite::params![text_id, board_id],
+                    )?;
+                }
+            }
+            (Some(text_id), None) => {
+                // No prior state → the upsert was a new insert; delete it.
+                tx.execute(
+                    "DELETE FROM pen_texts WHERE id = ?1 AND board_id = ?2",
+                    rusqlite::params![text_id, board_id],
+                )?;
+            }
+            _ => {}
+        },
+        "text_delete" => {
+            if let Some(prev_json) = payload {
+                let prev: PenText = serde_json::from_str(&prev_json).map_err(|e| {
+                    DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+                })?;
+                tx.execute(
+                    "INSERT INTO pen_texts (id, board_id, x, y, text, font_size, color, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+                     ON CONFLICT(id) DO UPDATE SET \
+                       x = excluded.x, y = excluded.y, text = excluded.text, \
+                       font_size = excluded.font_size, color = excluded.color, \
+                       updated_at = excluded.updated_at",
+                    rusqlite::params![
+                        prev.id,
+                        board_id,
+                        prev.x,
+                        prev.y,
+                        prev.text,
+                        prev.font_size,
+                        prev.color,
+                        prev.updated_at,
+                    ],
+                )?;
+            }
+        }
+        "clear" => {
+            if let Some(p) = payload {
+                let v: serde_json::Value = serde_json::from_str(&p).map_err(|e| {
+                    DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+                })?;
+                if let Some(strokes) = v.get("strokes").and_then(|x| x.as_array()) {
+                    for s in strokes {
+                        let stroke: PenStrokeSummary = serde_json::from_value(s.clone())
+                            .map_err(|e| {
+                                DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+                            })?;
+                        let pts = serde_json::to_string(&stroke.points).map_err(|e| {
+                            DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+                        })?;
+                        tx.execute(
+                            "INSERT OR REPLACE INTO pen_strokes \
+                               (id, board_id, color, size, points_json, ord, created_at) \
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                            rusqlite::params![
+                                stroke.id,
+                                board_id,
+                                stroke.color,
+                                stroke.size,
+                                pts,
+                                stroke.ord as i64,
+                                stroke.created_at,
+                            ],
+                        )?;
+                    }
+                }
+                if let Some(texts) = v.get("texts").and_then(|x| x.as_array()) {
+                    for t in texts {
+                        let text: PenText = serde_json::from_value(t.clone()).map_err(|e| {
+                            DbError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+                        })?;
+                        tx.execute(
+                            "INSERT OR REPLACE INTO pen_texts \
+                               (id, board_id, x, y, text, font_size, color, updated_at) \
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                            rusqlite::params![
+                                text.id,
+                                board_id,
+                                text.x,
+                                text.y,
+                                text.text,
+                                text.font_size,
+                                text.color,
+                                text.updated_at,
+                            ],
+                        )?;
+                    }
+                }
+            }
+        }
+        other => {
+            tracing::warn!(kind = %other, target_action_id, "pen_undo: unknown action kind");
+        }
+    }
+
+    // Finally, delete the action row itself.
+    tx.execute(
+        "DELETE FROM pen_actions WHERE id = ?1 AND board_id = ?2",
+        rusqlite::params![target_action_id, board_id],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -472,6 +840,40 @@ mod tests {
             [room_id],
         )
         .unwrap();
+    }
+
+    fn seed_pen_board(db: &Db, room_id: &str, board_id: &str) {
+        seed_room(db, room_id);
+        let conn = db.get().unwrap();
+        conn.execute(
+            "INSERT INTO boards (id, room_id, kind, title, ord, created_at) \
+             VALUES (?1, ?2, 'pen', 't', 0.0, 0)",
+            [board_id, room_id],
+        )
+        .unwrap();
+    }
+
+    fn stroke(id: &str, ord: u32) -> PenStrokeSummary {
+        PenStrokeSummary {
+            id: id.into(),
+            color: "#000000".into(),
+            size: 2.0,
+            points: vec![[0.0, 0.0, 0.5], [1.0, 1.0, 0.5]],
+            created_at: 100,
+            ord,
+        }
+    }
+
+    fn pen_text(id: &str, txt: &str) -> PenText {
+        PenText {
+            id: id.into(),
+            x: 10.0,
+            y: 20.0,
+            text: txt.into(),
+            font_size: 16.0,
+            color: "#111111".into(),
+            updated_at: 200,
+        }
     }
 
     fn board(id: &str, kind: BoardKind, title: &str, ord: f64) -> Board {
@@ -1276,6 +1678,377 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(k && m, "mute must preserve existing kick");
+    }
+
+    #[test]
+    fn pen_insert_completed_stroke_writes_stroke_and_action() {
+        let db = Db::open_in_memory().unwrap();
+        seed_pen_board(&db, "ROOMPEN000001", "b1");
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPEN000001".into(),
+                kind: WriteOpKind::InsertCompletedPenStroke {
+                    board_id: "b1".into(),
+                    stroke: stroke("s1", 1),
+                    action_id: "a1".into(),
+                    created_at: 500,
+                },
+            }],
+        );
+        let conn = db.get().unwrap();
+        let strokes: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pen_strokes WHERE board_id='b1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let (kind, target, ord, payload): (String, Option<String>, i64, Option<String>) = conn
+            .query_row(
+                "SELECT kind, target_id, ord, payload_json FROM pen_actions WHERE id='a1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(strokes, 1);
+        assert_eq!(kind, "stroke_begin");
+        assert_eq!(target.as_deref(), Some("s1"));
+        assert_eq!(ord, 1, "first action should get ord = 1");
+        assert!(payload.is_none(), "stroke_begin has no payload");
+    }
+
+    #[test]
+    fn pen_text_set_then_set_carries_before_json() {
+        let db = Db::open_in_memory().unwrap();
+        seed_pen_board(&db, "ROOMPEN000002", "b1");
+        // First text set — no prior state.
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPEN000002".into(),
+                kind: WriteOpKind::UpsertPenText {
+                    board_id: "b1".into(),
+                    text: pen_text("t1", "hello"),
+                    action_id: "a1".into(),
+                    before_json: None,
+                    created_at: 100,
+                },
+            }],
+        );
+        // Second text set — capture the previous state as JSON.
+        let prev = pen_text("t1", "hello");
+        let prev_json = serde_json::to_string(&prev).unwrap();
+        let mut new = pen_text("t1", "world");
+        new.updated_at = 300;
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPEN000002".into(),
+                kind: WriteOpKind::UpsertPenText {
+                    board_id: "b1".into(),
+                    text: new,
+                    action_id: "a2".into(),
+                    before_json: Some(prev_json.clone()),
+                    created_at: 300,
+                },
+            }],
+        );
+
+        let conn = db.get().unwrap();
+        let row_text: String = conn
+            .query_row("SELECT text FROM pen_texts WHERE id='t1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(row_text, "world");
+        let (payload, ord): (Option<String>, i64) = conn
+            .query_row(
+                "SELECT payload_json, ord FROM pen_actions WHERE id='a2'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(ord, 2, "monotonic per board");
+        assert_eq!(payload.as_deref(), Some(prev_json.as_str()));
+    }
+
+    #[test]
+    fn pen_undo_text_set_with_prev_restores_prev_text() {
+        let db = Db::open_in_memory().unwrap();
+        seed_pen_board(&db, "ROOMPENUND001", "b1");
+        // Set "hello", then set "world" with before_json = hello.
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENUND001".into(),
+                kind: WriteOpKind::UpsertPenText {
+                    board_id: "b1".into(),
+                    text: pen_text("t1", "hello"),
+                    action_id: "a1".into(),
+                    before_json: None,
+                    created_at: 1,
+                },
+            }],
+        );
+        let prev = pen_text("t1", "hello");
+        let prev_json = serde_json::to_string(&prev).unwrap();
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENUND001".into(),
+                kind: WriteOpKind::UpsertPenText {
+                    board_id: "b1".into(),
+                    text: pen_text("t1", "world"),
+                    action_id: "a2".into(),
+                    before_json: Some(prev_json),
+                    created_at: 2,
+                },
+            }],
+        );
+        // Undo a2.
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENUND001".into(),
+                kind: WriteOpKind::PenUndo {
+                    board_id: "b1".into(),
+                    target_action_id: "a2".into(),
+                },
+            }],
+        );
+
+        let conn = db.get().unwrap();
+        let row_text: String = conn
+            .query_row("SELECT text FROM pen_texts WHERE id='t1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(row_text, "hello", "undo should restore prior text");
+        let action_present: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pen_actions WHERE id='a2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(action_present, 0, "undo deletes the target action row");
+    }
+
+    #[test]
+    fn pen_undo_text_set_without_prev_removes_inserted_text() {
+        let db = Db::open_in_memory().unwrap();
+        seed_pen_board(&db, "ROOMPENUND002", "b1");
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENUND002".into(),
+                kind: WriteOpKind::UpsertPenText {
+                    board_id: "b1".into(),
+                    text: pen_text("t-new", "fresh"),
+                    action_id: "a1".into(),
+                    before_json: None,
+                    created_at: 1,
+                },
+            }],
+        );
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENUND002".into(),
+                kind: WriteOpKind::PenUndo {
+                    board_id: "b1".into(),
+                    target_action_id: "a1".into(),
+                },
+            }],
+        );
+        let conn = db.get().unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pen_texts WHERE id='t-new'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(n, 0, "undo of a fresh upsert (no prev) removes the row");
+    }
+
+    #[test]
+    fn pen_undo_text_delete_restores_text() {
+        let db = Db::open_in_memory().unwrap();
+        seed_pen_board(&db, "ROOMPENUND003", "b1");
+        // Insert, then delete, then undo.
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENUND003".into(),
+                kind: WriteOpKind::UpsertPenText {
+                    board_id: "b1".into(),
+                    text: pen_text("t1", "keep-me"),
+                    action_id: "a1".into(),
+                    before_json: None,
+                    created_at: 1,
+                },
+            }],
+        );
+        let snapshot = pen_text("t1", "keep-me");
+        let snapshot_json = serde_json::to_string(&snapshot).unwrap();
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENUND003".into(),
+                kind: WriteOpKind::DeletePenText {
+                    board_id: "b1".into(),
+                    text_id: "t1".into(),
+                    action_id: "a2".into(),
+                    before_json: snapshot_json,
+                    created_at: 2,
+                },
+            }],
+        );
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENUND003".into(),
+                kind: WriteOpKind::PenUndo {
+                    board_id: "b1".into(),
+                    target_action_id: "a2".into(),
+                },
+            }],
+        );
+
+        let conn = db.get().unwrap();
+        let text: String = conn
+            .query_row("SELECT text FROM pen_texts WHERE id='t1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(text, "keep-me");
+    }
+
+    #[test]
+    fn pen_undo_stroke_begin_deletes_stroke() {
+        let db = Db::open_in_memory().unwrap();
+        seed_pen_board(&db, "ROOMPENUND004", "b1");
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENUND004".into(),
+                kind: WriteOpKind::InsertCompletedPenStroke {
+                    board_id: "b1".into(),
+                    stroke: stroke("s1", 1),
+                    action_id: "a1".into(),
+                    created_at: 1,
+                },
+            }],
+        );
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENUND004".into(),
+                kind: WriteOpKind::PenUndo {
+                    board_id: "b1".into(),
+                    target_action_id: "a1".into(),
+                },
+            }],
+        );
+        let conn = db.get().unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pen_strokes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn pen_clear_then_undo_restores_strokes_and_texts() {
+        let db = Db::open_in_memory().unwrap();
+        seed_pen_board(&db, "ROOMPENCLR001", "b1");
+        // Add a stroke + a text.
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMPENCLR001".into(),
+                    kind: WriteOpKind::InsertCompletedPenStroke {
+                        board_id: "b1".into(),
+                        stroke: stroke("s1", 1),
+                        action_id: "a1".into(),
+                        created_at: 1,
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMPENCLR001".into(),
+                    kind: WriteOpKind::UpsertPenText {
+                        board_id: "b1".into(),
+                        text: pen_text("t1", "x"),
+                        action_id: "a2".into(),
+                        before_json: None,
+                        created_at: 2,
+                    },
+                },
+            ],
+        );
+        let strokes_json = serde_json::to_string(&vec![stroke("s1", 1)]).unwrap();
+        let texts_json = serde_json::to_string(&vec![pen_text("t1", "x")]).unwrap();
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENCLR001".into(),
+                kind: WriteOpKind::PenClear {
+                    board_id: "b1".into(),
+                    action_id: "a-clear".into(),
+                    before_strokes_json: strokes_json,
+                    before_texts_json: texts_json,
+                    created_at: 3,
+                },
+            }],
+        );
+        // After clear: rows are gone.
+        {
+            let conn = db.get().unwrap();
+            let n_s: i64 = conn
+                .query_row("SELECT COUNT(*) FROM pen_strokes", [], |r| r.get(0))
+                .unwrap();
+            let n_t: i64 = conn
+                .query_row("SELECT COUNT(*) FROM pen_texts", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(n_s, 0);
+            assert_eq!(n_t, 0);
+        }
+        // Undo clear.
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENCLR001".into(),
+                kind: WriteOpKind::PenUndo {
+                    board_id: "b1".into(),
+                    target_action_id: "a-clear".into(),
+                },
+            }],
+        );
+        let conn = db.get().unwrap();
+        let n_s: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pen_strokes", [], |r| r.get(0))
+            .unwrap();
+        let n_t: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pen_texts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n_s, 1, "stroke should be restored after clear-undo");
+        assert_eq!(n_t, 1, "text should be restored after clear-undo");
+    }
+
+    #[test]
+    fn pen_undo_unknown_action_is_noop() {
+        let db = Db::open_in_memory().unwrap();
+        seed_pen_board(&db, "ROOMPENUNK001", "b1");
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMPENUNK001".into(),
+                kind: WriteOpKind::PenUndo {
+                    board_id: "b1".into(),
+                    target_action_id: "ghost".into(),
+                },
+            }],
+        );
+        // No panic, no rows.
+        let conn = db.get().unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pen_actions", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
     }
 
     #[tokio::test]

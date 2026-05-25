@@ -16,7 +16,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
 
-use crate::proto::{Board, Question, Topic};
+use crate::proto::{Board, PenStrokeSummary, PenText, Question, Topic};
 
 mod embedded {
     refinery::embed_migrations!("./migrations");
@@ -299,6 +299,50 @@ pub enum WriteOpKind {
         guest_id: String,
         muted: bool,
         updated_at: i64,
+    },
+
+    /// Pen — write the completed stroke + matching pen_actions row
+    /// (kind='stroke_begin', payload_json=NULL) in the same tx. See
+    /// `.plan/2026-05-25-followup/persistence.md` §3 Pen.
+    InsertCompletedPenStroke {
+        board_id: String,
+        stroke: PenStrokeSummary,
+        action_id: String,
+        created_at: i64,
+    },
+    /// Pen text upsert + pen_actions row (kind='text_set',
+    /// payload_json = serde_json(prev_text)).
+    UpsertPenText {
+        board_id: String,
+        text: PenText,
+        action_id: String,
+        before_json: Option<String>,
+        created_at: i64,
+    },
+    /// Pen text delete + pen_actions row (kind='text_delete',
+    /// payload_json = serde_json(deleted_text)).
+    DeletePenText {
+        board_id: String,
+        text_id: String,
+        action_id: String,
+        before_json: String,
+        created_at: i64,
+    },
+    /// Clear all strokes + texts on a board, plus pen_actions row
+    /// (kind='clear', payload_json = {"strokes":[...], "texts":[...]}).
+    PenClear {
+        board_id: String,
+        action_id: String,
+        before_strokes_json: String,
+        before_texts_json: String,
+        created_at: i64,
+    },
+    /// Apply the inverse of `target_action_id` and delete that row.
+    /// Reads `payload_json` to reconstruct the prior state. See
+    /// persistence.md §3 PenUndo.
+    PenUndo {
+        board_id: String,
+        target_action_id: String,
     },
 }
 
