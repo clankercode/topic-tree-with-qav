@@ -96,6 +96,26 @@ fn apply_batch_sync(db: &Db, ops: &[WriteOp]) -> Result<(), DbError> {
 pub(crate) fn apply_op_in_tx(tx: &Transaction<'_>, op: &WriteOp) -> Result<(), DbError> {
     match &op.kind {
         WriteOpKind::UpsertTopic { topic } => apply_upsert_topic(tx, &op.room_id, topic),
+        WriteOpKind::RenameTopic { topic_id, title } => apply_rename_topic(tx, topic_id, title),
+        WriteOpKind::MoveTopic {
+            topic_id,
+            parent_id,
+            ord,
+        } => apply_move_topic(tx, topic_id, parent_id.as_deref(), *ord),
+        WriteOpKind::SetTopicStatus { topic_id, status } => {
+            apply_set_topic_status(tx, topic_id, *status)
+        }
+        WriteOpKind::DeleteTopic { topic_id } => apply_delete_topic(tx, topic_id),
+        WriteOpKind::SetActiveTopic { topic_id } => {
+            apply_set_active_topic(tx, &op.room_id, topic_id.as_deref())
+        }
+    }
+}
+
+fn topic_status_str(s: TopicStatus) -> &'static str {
+    match s {
+        TopicStatus::Pending => "pending",
+        TopicStatus::Done => "done",
     }
 }
 
@@ -104,10 +124,6 @@ fn apply_upsert_topic(
     room_id: &str,
     topic: &Topic,
 ) -> Result<(), DbError> {
-    let status = match topic.status {
-        TopicStatus::Pending => "pending",
-        TopicStatus::Done => "done",
-    };
     tx.execute(
         "INSERT INTO topics (id, room_id, parent_id, title, ord, status, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
@@ -122,9 +138,66 @@ fn apply_upsert_topic(
             topic.parent_id,
             topic.title,
             topic.ord,
-            status,
+            topic_status_str(topic.status),
             topic.created_at,
         ],
+    )?;
+    Ok(())
+}
+
+fn apply_rename_topic(
+    tx: &Transaction<'_>,
+    topic_id: &str,
+    title: &str,
+) -> Result<(), DbError> {
+    tx.execute(
+        "UPDATE topics SET title = ?1 WHERE id = ?2",
+        rusqlite::params![title, topic_id],
+    )?;
+    Ok(())
+}
+
+fn apply_move_topic(
+    tx: &Transaction<'_>,
+    topic_id: &str,
+    parent_id: Option<&str>,
+    ord: f64,
+) -> Result<(), DbError> {
+    tx.execute(
+        "UPDATE topics SET parent_id = ?1, ord = ?2 WHERE id = ?3",
+        rusqlite::params![parent_id, ord, topic_id],
+    )?;
+    Ok(())
+}
+
+fn apply_set_topic_status(
+    tx: &Transaction<'_>,
+    topic_id: &str,
+    status: TopicStatus,
+) -> Result<(), DbError> {
+    tx.execute(
+        "UPDATE topics SET status = ?1 WHERE id = ?2",
+        rusqlite::params![topic_status_str(status), topic_id],
+    )?;
+    Ok(())
+}
+
+fn apply_delete_topic(tx: &Transaction<'_>, topic_id: &str) -> Result<(), DbError> {
+    tx.execute(
+        "DELETE FROM topics WHERE id = ?1",
+        rusqlite::params![topic_id],
+    )?;
+    Ok(())
+}
+
+fn apply_set_active_topic(
+    tx: &Transaction<'_>,
+    room_id: &str,
+    topic_id: Option<&str>,
+) -> Result<(), DbError> {
+    tx.execute(
+        "UPDATE rooms SET active_topic_id = ?1 WHERE id = ?2",
+        rusqlite::params![topic_id, room_id],
     )?;
     Ok(())
 }
@@ -182,6 +255,211 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 3, "expected three topic rows after the batch");
+    }
+
+    fn drive_ops(db: &Db, ops: Vec<WriteOp>) {
+        let mut writer = db.acquire_writer_conn().unwrap();
+        let tx = writer.transaction().unwrap();
+        for op in &ops {
+            apply_op_in_tx(&tx, op).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+
+    #[test]
+    fn apply_rename_topic_updates_only_title() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMRENAME01");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMRENAME01".into(),
+                    kind: WriteOpKind::UpsertTopic {
+                        topic: topic("t-1", 1.0),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMRENAME01".into(),
+                    kind: WriteOpKind::RenameTopic {
+                        topic_id: "t-1".into(),
+                        title: "new-name".into(),
+                    },
+                },
+            ],
+        );
+        let conn = db.get().unwrap();
+        let (title, ord): (String, f64) = conn
+            .query_row(
+                "SELECT title, ord FROM topics WHERE id='t-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(title, "new-name");
+        assert_eq!(ord, 1.0, "rename must not touch ord");
+    }
+
+    #[test]
+    fn apply_move_topic_updates_parent_and_ord() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMMOVE0001");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMMOVE0001".into(),
+                    kind: WriteOpKind::UpsertTopic {
+                        topic: topic("p", 0.0),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMMOVE0001".into(),
+                    kind: WriteOpKind::UpsertTopic {
+                        topic: topic("c", 1.0),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMMOVE0001".into(),
+                    kind: WriteOpKind::MoveTopic {
+                        topic_id: "c".into(),
+                        parent_id: Some("p".into()),
+                        ord: 5.0,
+                    },
+                },
+            ],
+        );
+        let conn = db.get().unwrap();
+        let (parent, ord): (Option<String>, f64) = conn
+            .query_row(
+                "SELECT parent_id, ord FROM topics WHERE id='c'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(parent.as_deref(), Some("p"));
+        assert_eq!(ord, 5.0);
+    }
+
+    #[test]
+    fn apply_set_topic_status_toggles_done() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMSTATUS01");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMSTATUS01".into(),
+                    kind: WriteOpKind::UpsertTopic {
+                        topic: topic("t", 0.0),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMSTATUS01".into(),
+                    kind: WriteOpKind::SetTopicStatus {
+                        topic_id: "t".into(),
+                        status: TopicStatus::Done,
+                    },
+                },
+            ],
+        );
+        let conn = db.get().unwrap();
+        let status: String = conn
+            .query_row("SELECT status FROM topics WHERE id='t'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(status, "done");
+    }
+
+    #[test]
+    fn apply_delete_topic_removes_row_and_cascades_children() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMDELET0001");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMDELET0001".into(),
+                    kind: WriteOpKind::UpsertTopic {
+                        topic: topic("p", 0.0),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMDELET0001".into(),
+                    kind: WriteOpKind::UpsertTopic {
+                        topic: Topic {
+                            parent_id: Some("p".into()),
+                            ..topic("c", 1.0)
+                        },
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMDELET0001".into(),
+                    kind: WriteOpKind::DeleteTopic {
+                        topic_id: "p".into(),
+                    },
+                },
+            ],
+        );
+        let conn = db.get().unwrap();
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM topics WHERE room_id='ROOMDELET0001'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 0, "parent + child should cascade");
+    }
+
+    #[test]
+    fn apply_set_active_topic_writes_room_column() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMACTIVE001");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMACTIVE001".into(),
+                    kind: WriteOpKind::UpsertTopic {
+                        topic: topic("t", 0.0),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMACTIVE001".into(),
+                    kind: WriteOpKind::SetActiveTopic {
+                        topic_id: Some("t".into()),
+                    },
+                },
+            ],
+        );
+        {
+            let conn = db.get().unwrap();
+            let active: Option<String> = conn
+                .query_row(
+                    "SELECT active_topic_id FROM rooms WHERE id='ROOMACTIVE001'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(active.as_deref(), Some("t"));
+        } // drop the pool checkout before driving more ops in :memory: mode
+
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMACTIVE001".into(),
+                kind: WriteOpKind::SetActiveTopic { topic_id: None },
+            }],
+        );
+        let conn = db.get().unwrap();
+        let active: Option<String> = conn
+            .query_row(
+                "SELECT active_topic_id FROM rooms WHERE id='ROOMACTIVE001'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(active.is_none(), "set_active_topic(None) should clear");
     }
 
     #[tokio::test]

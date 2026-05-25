@@ -221,9 +221,25 @@ pub struct WriteOp {
 
 #[derive(Debug, Clone)]
 pub enum WriteOpKind {
-    /// Insert or update a topic row. F1.3 will add the rest of the topic
-    /// mutations (rename, move, set status, delete, set-active).
+    /// Insert or update a topic row.
     UpsertTopic { topic: Topic },
+    /// Rename only — leaves parent_id / ord / status untouched.
+    RenameTopic { topic_id: String, title: String },
+    /// Move under a (possibly new) parent at the given ord.
+    MoveTopic {
+        topic_id: String,
+        parent_id: Option<String>,
+        ord: f64,
+    },
+    /// Set status (pending|done).
+    SetTopicStatus {
+        topic_id: String,
+        status: crate::proto::TopicStatus,
+    },
+    /// Delete a topic. SQLite FK cascades to descendants.
+    DeleteTopic { topic_id: String },
+    /// Update `rooms.active_topic_id`. `None` clears it.
+    SetActiveTopic { topic_id: Option<String> },
 }
 
 fn configure_connection(conn: &mut Connection) -> rusqlite::Result<()> {
