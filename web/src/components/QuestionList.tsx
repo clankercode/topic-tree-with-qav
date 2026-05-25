@@ -52,9 +52,10 @@ export function QuestionItem({ question, hasVoted }: QuestionItemProps) {
     >
       {me?.role !== "host" && (
         <VoteButton
-          questionId={question.id}
+          target={{ kind: "question", id: question.id }}
           voteCount={question.voteCount}
           hasVoted={hasVoted}
+          faded={question.answered}
         />
       )}
       <div className="flex flex-1 flex-col gap-1">

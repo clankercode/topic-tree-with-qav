@@ -145,6 +145,7 @@ struct RoomInner {
     active_topic_id: Option<TopicId>,
     questions: BTreeMap<QuestionId, Question>,
     vote_index: HashMap<QuestionId, HashSet<GuestId>>,
+    topic_vote_index: HashMap<TopicId, HashSet<GuestId>>,
     boards: BTreeMap<BoardId, Board>,
     excalidraw_scenes: BTreeMap<BoardId, ExcalidrawScene>,
     excalidraw_last_broadcast_version: HashMap<BoardId, u64>,
@@ -169,6 +170,7 @@ impl Room {
                 active_topic_id: None,
                 questions: BTreeMap::new(),
                 vote_index: HashMap::new(),
+                topic_vote_index: HashMap::new(),
                 boards: BTreeMap::new(),
                 excalidraw_scenes: BTreeMap::new(),
                 excalidraw_last_broadcast_version: HashMap::new(),
@@ -409,6 +411,7 @@ impl Room {
         }
         for id in &to_remove {
             g.topics.remove(id);
+            g.topic_vote_index.remove(id);
         }
         if g.active_topic_id
             .as_ref()
@@ -450,13 +453,58 @@ impl Room {
         true
     }
 
-    pub fn load_topics(&self, topics: Vec<Topic>, active_topic_id: Option<String>) {
+    pub fn load_topics(
+        &self,
+        topics: Vec<Topic>,
+        topic_votes: HashMap<TopicId, Vec<GuestId>>,
+        active_topic_id: Option<String>,
+    ) {
         let mut g = self.inner.lock().expect("room inner");
         g.topics.clear();
-        for t in topics {
+        g.topic_vote_index.clear();
+        for mut t in topics {
+            t.vote_count = topic_votes.get(&t.id).map(|v| v.len() as u32).unwrap_or(0);
             g.topics.insert(t.id.clone(), t);
         }
+        for (tid, voters) in topic_votes {
+            g.topic_vote_index.insert(tid, voters.into_iter().collect());
+        }
         g.active_topic_id = active_topic_id;
+    }
+
+    pub fn my_topic_votes(&self, my_guest_id: &str) -> Vec<String> {
+        let g = self.inner.lock().expect("room inner");
+        g.topic_vote_index
+            .iter()
+            .filter(|(_, voters)| voters.contains(my_guest_id))
+            .map(|(tid, _)| tid.clone())
+            .collect()
+    }
+
+    pub fn vote_topic(&self, topic_id: &str, guest_id: &str, vote: bool) -> Option<(u32, bool)> {
+        let mut g = self.inner.lock().expect("room inner");
+        let was_voted = g
+            .topic_vote_index
+            .get(topic_id)
+            .map(|voters| voters.contains(guest_id))
+            .unwrap_or(false);
+        let changed = vote != was_voted;
+        if !changed {
+            return Some((g.topics.get(topic_id)?.vote_count, false));
+        }
+        let new_count = if vote {
+            let voters = g.topic_vote_index.entry(topic_id.to_string()).or_default();
+            voters.insert(guest_id.to_string());
+            voters.len() as u32
+        } else {
+            let voters = g.topic_vote_index.entry(topic_id.to_string()).or_default();
+            voters.remove(guest_id);
+            voters.len() as u32
+        };
+        if let Some(t) = g.topics.get_mut(topic_id) {
+            t.vote_count = new_count;
+        }
+        Some((new_count, true))
     }
 
     pub fn questions(&self) -> Vec<Question> {
@@ -612,6 +660,7 @@ impl Room {
             ord: new_ord,
             status: TopicStatus::Pending,
             created_at: now,
+            vote_count: 0,
         };
         g.topics.insert(topic_id, topic.clone());
         Some((question, topic))
@@ -998,6 +1047,12 @@ impl Room {
                 .filter(|(_, voters)| voters.contains(my_guest_id))
                 .map(|(qid, _)| qid.clone())
                 .collect();
+            let my_topic_votes: Vec<String> = g
+                .topic_vote_index
+                .iter()
+                .filter(|(_, voters)| voters.contains(my_guest_id))
+                .map(|(tid, _)| tid.clone())
+                .collect();
             let boards: Vec<JsonValue> = g
                 .boards
                 .values()
@@ -1082,14 +1137,14 @@ impl Room {
                     .collect::<Vec<_>>(),
                 g.topics.values().cloned().collect::<Vec<_>>(),
                 g.active_topic_id.clone(),
-                (questions, my_votes),
+                (questions, my_votes, my_topic_votes),
                 boards,
                 g.focused_board_id.clone(),
                 hands,
                 g.seq,
             )
         };
-        let (questions, my_votes) = questions;
+        let (questions, my_votes, my_topic_votes) = questions;
         RoomSnapshot {
             room: RoomSummary {
                 id: self.id.clone(),
@@ -1103,6 +1158,7 @@ impl Room {
             active_topic_id,
             questions,
             my_votes,
+            my_topic_votes,
             boards,
             focused_board_id,
             hands,
@@ -1240,10 +1296,33 @@ fn hydrate_room_from_db(room: &Room, db: &Db, room_id: &str) -> Result<(), DbErr
                     _ => TopicStatus::Pending,
                 },
                 created_at: r.get(5)?,
+                vote_count: 0,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>()?
     };
+
+    let mut topic_votes: HashMap<TopicId, Vec<GuestId>> = HashMap::new();
+    {
+        let mut stmt = tx.prepare(
+            "SELECT v.topic_id, v.guest_id FROM topic_votes v \
+             JOIN topics t ON t.id = v.topic_id WHERE t.room_id = ?1",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![room_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (tid, gid) = row?;
+            topic_votes.entry(tid).or_default().push(gid);
+        }
+    }
+    let topics: Vec<Topic> = topics
+        .into_iter()
+        .map(|mut t| {
+            t.vote_count = topic_votes.get(&t.id).map(|v| v.len() as u32).unwrap_or(0);
+            t
+        })
+        .collect();
 
     // 3. Questions + votes.
     let questions: Vec<Question> = {
@@ -1433,7 +1512,7 @@ fn hydrate_room_from_db(room: &Room, db: &Db, room_id: &str) -> Result<(), DbErr
     // Push into the room's in-memory model. load_* setters are safe to
     // call in any order; load_boards must precede load_pen_board_state
     // because load_pen_board_state expects the board entry to exist.
-    room.load_topics(topics, active_topic_id);
+    room.load_topics(topics, topic_votes, active_topic_id);
     room.load_questions(questions, votes);
     room.load_boards(boards, scenes, focused_board_id);
     for load in pen_loads {
@@ -1552,6 +1631,7 @@ mod tests {
             ord: 1.0,
             status: TopicStatus::Pending,
             created_at: 100,
+            vote_count: 0,
         });
         let topics = r.topics();
         assert_eq!(topics.len(), 1);
@@ -1569,6 +1649,7 @@ mod tests {
             ord: 1.0,
             status: TopicStatus::Pending,
             created_at: 100,
+            vote_count: 0,
         });
         assert!(r.rename_topic("t1", "Renamed".into()));
         assert_eq!(r.topics()[0].title, "Renamed");
@@ -1585,6 +1666,7 @@ mod tests {
             ord: 1.0,
             status: TopicStatus::Pending,
             created_at: 100,
+            vote_count: 0,
         });
         assert!(r.move_topic("t1", Some("parent1".into()), 2.5));
         let t = r.topics().pop().unwrap();
@@ -1602,6 +1684,7 @@ mod tests {
             ord: 1.0,
             status: TopicStatus::Pending,
             created_at: 100,
+            vote_count: 0,
         });
         assert_eq!(r.topics().len(), 1);
         r.delete_topic("t1");
@@ -1618,6 +1701,7 @@ mod tests {
             ord: 1.0,
             status: TopicStatus::Pending,
             created_at: 100,
+            vote_count: 0,
         });
         assert!(r.active_topic_id().is_none());
         r.set_active_topic(Some("t1".into()));
@@ -1636,6 +1720,7 @@ mod tests {
             ord: 1.0,
             status: TopicStatus::Pending,
             created_at: 100,
+            vote_count: 0,
         });
         assert_eq!(r.topics()[0].status, TopicStatus::Pending);
         assert!(r.mark_topic_done("t1", true));
@@ -1654,6 +1739,7 @@ mod tests {
             ord: 1.0,
             status: TopicStatus::Pending,
             created_at: 100,
+            vote_count: 0,
         });
         r.add_topic(Topic {
             id: "t2".into(),
@@ -1662,6 +1748,7 @@ mod tests {
             ord: 2.0,
             status: TopicStatus::Pending,
             created_at: 101,
+            vote_count: 0,
         });
         r.set_active_topic(Some("t1".into()));
         r.set_active_topic(Some("t2".into()));
@@ -1678,6 +1765,7 @@ mod tests {
             ord: 1.0,
             status: TopicStatus::Pending,
             created_at: 100,
+            vote_count: 0,
         });
         r.load_topics(
             vec![Topic {
@@ -1687,7 +1775,9 @@ mod tests {
                 ord: 1.0,
                 status: TopicStatus::Done,
                 created_at: 200,
+                vote_count: 0,
             }],
+            HashMap::new(),
             Some("t2".into()),
         );
         assert_eq!(r.topics().len(), 1);

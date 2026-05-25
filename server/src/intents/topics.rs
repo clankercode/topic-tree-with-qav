@@ -3,9 +3,10 @@ use uuid::Uuid;
 use crate::api::now_ms;
 use crate::db::WriteOpKind;
 use crate::intents::helpers::{
-    ack_if_id, broadcast_topic_tree, enqueue_write, ensure_host, IntentError, SessionCtx,
+    ack_if_id, broadcast_topic_tree, broadcast_topic_vote_updated, enqueue_write, ensure_host,
+    ensure_not_muted, IntentError, SessionCtx,
 };
-use crate::proto::{error_codes, ClientMsg, ImportedTopicNode, Topic, TopicStatus};
+use crate::proto::{error_codes, ClientMsg, ImportedTopicNode, Role, Topic, TopicStatus};
 use crate::rate_limit::Quota;
 use crate::state::global_rate_limiter;
 
@@ -48,6 +49,9 @@ pub(crate) async fn handle(ctx: &mut SessionCtx<'_>, msg: ClientMsg) -> Result<(
             topics,
             ..
         } => import_topic_tree(ctx, id, parent_topic_id, topics).await,
+        ClientMsg::VoteTopic {
+            id, topic_id, vote, ..
+        } => vote_topic(ctx, id, topic_id, vote).await,
         _ => unreachable!("non-topic intent routed to topics handler"),
     }
 }
@@ -90,6 +94,15 @@ async fn add_topic(
             ));
         }
     }
+    if let Err(e) = crate::validation::validate_new_child_depth(&known_topics, parent_id.as_deref())
+    {
+        return Err(client_error(
+            ctx,
+            error_codes::BAD_REQUEST,
+            e.to_string(),
+            id.as_deref(),
+        ));
+    }
     let topic_id = Uuid::new_v4().to_string();
     let now = now_ms();
     let ord = if let Some(after) = after_id {
@@ -108,6 +121,7 @@ async fn add_topic(
         ord,
         status: TopicStatus::Pending,
         created_at: now,
+        vote_count: 0,
     };
     ctx.room.add_topic(topic.clone());
     broadcast_topic_tree(ctx.room);
@@ -181,6 +195,16 @@ async fn move_topic(
                 id.as_deref(),
             ));
         }
+    }
+    if let Err(e) =
+        crate::validation::validate_move_depth(&known_topics, &topic_id, new_parent_id.as_deref())
+    {
+        return Err(client_error(
+            ctx,
+            error_codes::BAD_REQUEST,
+            e.to_string(),
+            id.as_deref(),
+        ));
     }
     let ord = if let Some(after) = after_id {
         known_topics
@@ -316,7 +340,14 @@ async fn import_topic_tree(
             id.as_deref(),
         ));
     }
-    if let Err(e) = crate::validation::validate_imported_topics(&imported) {
+    let known_topics = ctx.room.topics();
+    if let Err(e) = crate::validation::validate_imported_topics_with_base(
+        &imported,
+        parent_topic_id
+            .as_ref()
+            .and_then(|p| crate::validation::topic_depth(&known_topics, p))
+            .unwrap_or(0),
+    ) {
         return Err(client_error(
             ctx,
             error_codes::BAD_REQUEST,
@@ -324,7 +355,6 @@ async fn import_topic_tree(
             id.as_deref(),
         ));
     }
-    let known_topics = ctx.room.topics();
     if let Some(parent_id) = parent_topic_id.as_ref() {
         if !topic_exists(&known_topics, parent_id) {
             return Err(client_error(
@@ -387,6 +417,7 @@ fn flatten(
             ord,
             status: node.status,
             created_at: now,
+            vote_count: 0,
         });
         flatten(&node.children, Some(id), 1.0, now, out);
         ord += 1.0;
@@ -395,6 +426,72 @@ fn flatten(
 
 fn topic_exists(topics: &[Topic], topic_id: &str) -> bool {
     topics.iter().any(|topic| topic.id == topic_id)
+}
+
+async fn vote_topic(
+    ctx: &mut SessionCtx<'_>,
+    id: Option<String>,
+    topic_id: String,
+    vote: bool,
+) -> Result<(), IntentError> {
+    if ctx.role != Role::Guest {
+        return Err(client_error(
+            ctx,
+            error_codes::FORBIDDEN,
+            "only guests can vote",
+            id.as_deref(),
+        ));
+    }
+    ensure_not_muted(
+        ctx,
+        id.as_deref(),
+        error_codes::MUTED,
+        "you are muted and cannot vote",
+    )?;
+    if !global_rate_limiter().check(ctx.client_id, "VoteTopic", Quota::per_minute(30.0)) {
+        return Err(client_error(
+            ctx,
+            error_codes::RATE_LIMIT,
+            "too many votes, slow down",
+            id.as_deref(),
+        ));
+    }
+    let (count, changed) = match ctx.room.vote_topic(&topic_id, ctx.guest_id, vote) {
+        Some(count_and_change) => count_and_change,
+        None => {
+            return Err(client_error(
+                ctx,
+                error_codes::BAD_REQUEST,
+                "topic not found",
+                id.as_deref(),
+            ));
+        }
+    };
+    if changed {
+        broadcast_topic_vote_updated(ctx.room, &topic_id, count, ctx.guest_id);
+        if vote {
+            enqueue_write(
+                ctx.state,
+                ctx.room,
+                WriteOpKind::AddTopicVote {
+                    topic_id: topic_id.clone(),
+                    guest_id: ctx.guest_id.to_string(),
+                    created_at: now_ms(),
+                },
+            );
+        } else {
+            enqueue_write(
+                ctx.state,
+                ctx.room,
+                WriteOpKind::RemoveTopicVote {
+                    topic_id: topic_id.clone(),
+                    guest_id: ctx.guest_id.to_string(),
+                },
+            );
+        }
+    }
+    ack_if_id(ctx, id.as_deref()).await;
+    Ok(())
 }
 
 fn client_error(

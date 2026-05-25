@@ -124,6 +124,14 @@ pub(crate) fn apply_op_in_tx(tx: &Transaction<'_>, op: &WriteOp) -> Result<(), D
             question_id,
             guest_id,
         } => apply_remove_vote(tx, question_id, guest_id),
+        WriteOpKind::AddTopicVote {
+            topic_id,
+            guest_id,
+            created_at,
+        } => apply_add_topic_vote(tx, topic_id, guest_id, *created_at),
+        WriteOpKind::RemoveTopicVote { topic_id, guest_id } => {
+            apply_remove_topic_vote(tx, topic_id, guest_id)
+        }
         WriteOpKind::PromoteQuestionToTopic { question_id, topic } => {
             // Atomicity is implied by the surrounding Transaction — both
             // rows land or neither does.
@@ -367,6 +375,32 @@ fn apply_remove_vote(
     tx.execute(
         "DELETE FROM question_votes WHERE question_id = ?1 AND guest_id = ?2",
         rusqlite::params![question_id, guest_id],
+    )?;
+    Ok(())
+}
+
+fn apply_add_topic_vote(
+    tx: &Transaction<'_>,
+    topic_id: &str,
+    guest_id: &str,
+    created_at: i64,
+) -> Result<(), DbError> {
+    tx.execute(
+        "INSERT OR IGNORE INTO topic_votes (topic_id, guest_id, created_at) \
+         VALUES (?1, ?2, ?3)",
+        rusqlite::params![topic_id, guest_id, created_at],
+    )?;
+    Ok(())
+}
+
+fn apply_remove_topic_vote(
+    tx: &Transaction<'_>,
+    topic_id: &str,
+    guest_id: &str,
+) -> Result<(), DbError> {
+    tx.execute(
+        "DELETE FROM topic_votes WHERE topic_id = ?1 AND guest_id = ?2",
+        rusqlite::params![topic_id, guest_id],
     )?;
     Ok(())
 }
@@ -910,6 +944,7 @@ mod tests {
             ord,
             status: TopicStatus::Pending,
             created_at: 0,
+            vote_count: 0,
         }
     }
 

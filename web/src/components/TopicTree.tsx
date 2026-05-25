@@ -1,11 +1,14 @@
 import {
   DndContext,
-  closestCenter,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
+  closestCenter,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -13,13 +16,16 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useMemo, useState } from "react";
-import { useSessionStore } from "../store";
-import { sendWsMsg } from "../ws/manager";
-import { TopicNode } from "./TopicNode";
 import { Plus } from "lucide-react";
-import { AddTopicModal } from "./AddTopicModal";
-import { TopicTreeImportExport } from "./TopicTreeImportExport";
+import { useTopicCollapse } from "../hooks/useTopicCollapse";
+import { siblingsOf, wouldExceedDepth } from "../lib/topicTreeHelpers";
+import { useSessionStore } from "../store";
+import { useToastStore } from "../store/toast";
+import { sendWsMsg } from "../ws/manager";
 import type { Topic } from "../ws/types";
+import { AddTopicModal } from "./AddTopicModal";
+import { TopicNode } from "./TopicNode";
+import { TopicTreeImportExport } from "./TopicTreeImportExport";
 import {
   TopicChildrenProvider,
   type ChildrenIndex,
@@ -27,9 +33,6 @@ import {
 
 const ROOT_KEY = "__root__";
 
-/// Group topics by `parentId`. Topics whose `parentId` points at a
-/// missing topic are folded under the root so they remain visible (a
-/// crash-resilient fallback for inconsistent snapshots).
 function buildChildrenIndex(topics: Topic[]): ChildrenIndex {
   const known = new Set(topics.map((t) => t.id));
   const map = new Map<string, Topic[]>();
@@ -44,18 +47,75 @@ function buildChildrenIndex(topics: Topic[]): ChildrenIndex {
   return { map, rootKey: ROOT_KEY };
 }
 
+function RootDropZone() {
+  const { setNodeRef, isOver } = useDroppable({ id: "root-drop" });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`min-h-1 ${isOver ? "rounded bg-[rgb(var(--primary))]/10" : ""}`}
+      aria-hidden
+    />
+  );
+}
+
+interface SiblingListProps {
+  parentKey: string;
+  childrenIndex: ChildrenIndex;
+  topics: Topic[];
+  editingId: string | null;
+  onStartEdit: (id: string) => void;
+  onEndEdit: () => void;
+}
+
+function SiblingList({
+  parentKey,
+  childrenIndex,
+  topics,
+  editingId,
+  onStartEdit,
+  onEndEdit,
+}: SiblingListProps) {
+  const list = childrenIndex.map.get(parentKey) ?? [];
+
+  return (
+    <TopicChildrenProvider value={childrenIndex}>
+      <SortableContext
+        items={list.map((t) => t.id)}
+        strategy={verticalListSortingStrategy}
+      >
+        <ul className="space-y-2">
+          {list.map((topic) => (
+            <TopicNode
+              key={topic.id}
+              topic={topic}
+              allTopics={topics}
+              childrenIndex={childrenIndex}
+              isEditing={editingId === topic.id}
+              onStartEdit={() => onStartEdit(topic.id)}
+              onEndEdit={onEndEdit}
+            />
+          ))}
+        </ul>
+      </SortableContext>
+    </TopicChildrenProvider>
+  );
+}
+
 export function TopicTree() {
   const topics = useSessionStore((s) => s.topics);
-  const activeTopicId = useSessionStore((s) => s.activeTopicId);
   const me = useSessionStore((s) => s.me);
+  const room = useSessionStore((s) => s.room);
   const optimisticAddTopic = useSessionStore((s) => s.optimisticAddTopic);
   const optimisticMoveTopic = useSessionStore((s) => s.optimisticMoveTopic);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const isHost = me?.role === "host";
+  const collapse = useTopicCollapse(room?.id);
+  const addToast = useToastStore((s) => s.addToast);
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
@@ -63,41 +123,101 @@ export function TopicTree() {
 
   const childrenIndex = useMemo(() => buildChildrenIndex(topics), [topics]);
   const rootTopics = childrenIndex.map.get(ROOT_KEY) ?? [];
+  const draggingTopic = draggingId
+    ? topics.find((t) => t.id === draggingId)
+    : null;
 
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id || !isHost) return;
-
-    const oldIndex = rootTopics.findIndex((t) => t.id === active.id);
-    const newIndex = rootTopics.findIndex((t) => t.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const movedTopic = rootTopics[oldIndex];
-    const afterTopic = newIndex > 0 ? rootTopics[newIndex - 1] : null;
-
-    optimisticMoveTopic(movedTopic.id, null, afterTopic?.id ?? null);
+  function sendMove(
+    topicId: string,
+    newParentId: string | null,
+    afterId: string | null,
+  ) {
+    optimisticMoveTopic(topicId, newParentId, afterId);
     sendWsMsg({
       v: 1,
       type: "MoveTopic",
-      topicId: movedTopic.id,
-      newParentId: null,
-      afterId: afterTopic?.id ?? null,
+      topicId,
+      newParentId,
+      afterId,
     });
   }
 
-  function handleAddTopic(title: string) {
+  function handleDragStart(event: DragStartEvent) {
+    setDraggingId(String(event.active.id));
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setDraggingId(null);
+    const { active, over } = event;
+    if (!over || !isHost) return;
+
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    if (activeId === overId) return;
+
+    if (overId === "root-drop") {
+      if (wouldExceedDepth(topics, activeId, null)) {
+        addToast("Topic tree cannot exceed 10 levels deep.", "error");
+        return;
+      }
+      sendMove(activeId, null, null);
+      return;
+    }
+
+    if (overId.startsWith("child:")) {
+      const newParentId = overId.slice("child:".length);
+      if (newParentId === activeId) return;
+      if (wouldExceedDepth(topics, activeId, newParentId)) {
+        addToast("Topic tree cannot exceed 10 levels deep.", "error");
+        return;
+      }
+      sendMove(activeId, newParentId, null);
+      collapse.expand(newParentId);
+      return;
+    }
+
+    const activeTopic = topics.find((t) => t.id === activeId);
+    const overTopic = topics.find((t) => t.id === overId);
+    if (!activeTopic || !overTopic) return;
+
+    if (activeTopic.parentId !== overTopic.parentId) {
+      if (wouldExceedDepth(topics, activeId, overTopic.parentId)) {
+        addToast("Topic tree cannot exceed 10 levels deep.", "error");
+        return;
+      }
+      sendMove(activeId, overTopic.parentId, overTopic.id);
+      return;
+    }
+
+    const siblings = siblingsOf(topics, activeTopic.parentId);
+    const oldIndex = siblings.findIndex((t) => t.id === activeId);
+    const newIndex = siblings.findIndex((t) => t.id === overId);
+    if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+    const afterId =
+      newIndex > oldIndex
+        ? overId
+        : newIndex > 0
+          ? siblings[newIndex - 1].id
+          : null;
+    sendMove(activeId, activeTopic.parentId, afterId);
+  }
+
+  function handleAddTopic(title: string, parentId: string | null = null) {
+    const siblings = siblingsOf(topics, parentId);
     const tempId = crypto.randomUUID();
     const afterId =
-      rootTopics.length > 0 ? rootTopics[rootTopics.length - 1].id : null;
-    optimisticAddTopic(tempId, null, title, afterId);
+      siblings.length > 0 ? siblings[siblings.length - 1].id : null;
+    optimisticAddTopic(tempId, parentId, title, afterId);
     sendWsMsg({
       v: 1,
       type: "AddTopic",
       id: tempId,
-      parentId: null,
+      parentId,
       title,
       afterId,
     });
+    if (parentId) collapse.expand(parentId);
   }
 
   return (
@@ -126,37 +246,38 @@ export function TopicTree() {
             : "Waiting for host to add topics."}
         </p>
       ) : (
-        <TopicChildrenProvider value={childrenIndex}>
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={rootTopics.map((t) => t.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <ul className="space-y-2">
-                {rootTopics.map((topic) => (
-                  <TopicNode
-                    key={topic.id}
-                    topic={topic}
-                    isActive={activeTopicId === topic.id}
-                    isEditing={editingId === topic.id}
-                    onStartEdit={() => setEditingId(topic.id)}
-                    onEndEdit={() => setEditingId(null)}
-                  />
-                ))}
-              </ul>
-            </SortableContext>
-          </DndContext>
-        </TopicChildrenProvider>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <RootDropZone />
+          <SiblingList
+            parentKey={ROOT_KEY}
+            childrenIndex={childrenIndex}
+            topics={topics}
+            editingId={editingId}
+            onStartEdit={setEditingId}
+            onEndEdit={() => setEditingId(null)}
+          />
+          <DragOverlay>
+            {draggingTopic ? (
+              <div className="rounded border border-[rgb(var(--primary))] bg-[rgb(var(--background))] px-3 py-2 text-sm shadow-lg">
+                {draggingTopic.title}
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
       <AddTopicModal
         open={showAddModal}
         onClose={() => setShowAddModal(false)}
-        onAdd={handleAddTopic}
+        onAdd={(title) => handleAddTopic(title, null)}
       />
     </section>
   );
 }
+
+// Re-export for tests that import buildChildrenIndex indirectly via TopicTree
+export { buildChildrenIndex };

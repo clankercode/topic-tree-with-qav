@@ -27,6 +27,7 @@ function topic(
     ord,
     status: "pending",
     createdAt: 0,
+    voteCount: 0,
   };
 }
 

@@ -28,9 +28,82 @@ pub const MAX_RAISE_HAND_TOPIC_LEN: usize = 80;
 /// overwhelm the room's in-memory state + every connected client's
 /// renderer.
 pub const MAX_IMPORT_TOPICS: usize = 500;
-pub const MAX_IMPORT_DEPTH: usize = 10;
+/// Maximum nesting depth for topics (root = depth 1). Enforced on import,
+/// add, and move.
+pub const MAX_TOPIC_DEPTH: usize = 10;
+pub const MAX_IMPORT_DEPTH: usize = MAX_TOPIC_DEPTH;
 pub const MAX_TOPIC_TITLE_LEN: usize = 200;
 pub const MAX_TOPICS_PER_ROOM: usize = 5000;
+
+/// Minimal topic shape for depth calculations without importing proto.
+pub trait TopicDepthLike {
+    fn topic_id(&self) -> &str;
+    fn topic_parent_id(&self) -> Option<&str>;
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum TopicDepthError {
+    #[error("topic tree exceeds max depth of {MAX_TOPIC_DEPTH}")]
+    TooDeep,
+}
+
+/// Depth from root: root topics are depth 1.
+pub fn topic_depth<T: TopicDepthLike>(topics: &[T], topic_id: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut current = Some(topic_id);
+    while let Some(id) = current {
+        depth += 1;
+        let t = topics.iter().find(|t| t.topic_id() == id)?;
+        current = t.topic_parent_id();
+    }
+    Some(depth)
+}
+
+/// Height of the subtree rooted at `topic_id`, counting the root as 1.
+pub fn subtree_max_depth<T: TopicDepthLike>(topics: &[T], topic_id: &str) -> usize {
+    let child_depths: Vec<usize> = topics
+        .iter()
+        .filter(|t| t.topic_parent_id() == Some(topic_id))
+        .map(|c| subtree_max_depth(topics, c.topic_id()))
+        .collect();
+    1 + child_depths.into_iter().max().unwrap_or(0)
+}
+
+/// Reject placing a new child under `parent_id` (None = root).
+pub fn validate_new_child_depth<T: TopicDepthLike>(
+    topics: &[T],
+    parent_id: Option<&str>,
+) -> Result<(), TopicDepthError> {
+    let new_depth = match parent_id {
+        None => 1,
+        Some(pid) => topic_depth(topics, pid)
+            .map(|d| d + 1)
+            .unwrap_or(MAX_TOPIC_DEPTH + 1),
+    };
+    if new_depth > MAX_TOPIC_DEPTH {
+        return Err(TopicDepthError::TooDeep);
+    }
+    Ok(())
+}
+
+/// Reject moving `topic_id` under `new_parent_id` if the subtree would exceed the cap.
+pub fn validate_move_depth<T: TopicDepthLike>(
+    topics: &[T],
+    topic_id: &str,
+    new_parent_id: Option<&str>,
+) -> Result<(), TopicDepthError> {
+    let new_root_depth = match new_parent_id {
+        None => 1,
+        Some(pid) => topic_depth(topics, pid)
+            .map(|d| d + 1)
+            .unwrap_or(MAX_TOPIC_DEPTH + 1),
+    };
+    let subtree = subtree_max_depth(topics, topic_id);
+    if new_root_depth + subtree - 1 > MAX_TOPIC_DEPTH {
+        return Err(TopicDepthError::TooDeep);
+    }
+    Ok(())
+}
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ImportValidationError {
@@ -52,6 +125,13 @@ pub enum ImportValidationError {
 pub fn validate_imported_topics<T: ImportedTopicLike>(
     topics: &[T],
 ) -> Result<(), ImportValidationError> {
+    validate_imported_topics_with_base(topics, 0)
+}
+
+pub fn validate_imported_topics_with_base<T: ImportedTopicLike>(
+    topics: &[T],
+    base_depth: usize,
+) -> Result<(), ImportValidationError> {
     if topics.is_empty() {
         return Err(ImportValidationError::Empty);
     }
@@ -59,10 +139,12 @@ pub fn validate_imported_topics<T: ImportedTopicLike>(
     fn walk<T: ImportedTopicLike>(
         nodes: &[T],
         depth: usize,
+        base_depth: usize,
         total: &mut usize,
     ) -> Result<(), ImportValidationError> {
-        if depth > MAX_IMPORT_DEPTH {
-            return Err(ImportValidationError::TooDeep(depth));
+        let absolute = base_depth + depth;
+        if absolute > MAX_TOPIC_DEPTH {
+            return Err(ImportValidationError::TooDeep(absolute));
         }
         for n in nodes {
             *total += 1;
@@ -76,11 +158,11 @@ pub fn validate_imported_topics<T: ImportedTopicLike>(
             if title.chars().count() > MAX_TOPIC_TITLE_LEN {
                 return Err(ImportValidationError::TitleTooLong);
             }
-            walk(n.children(), depth + 1, total)?;
+            walk(n.children(), depth + 1, base_depth, total)?;
         }
         Ok(())
     }
-    walk(topics, 1, &mut total)
+    walk(topics, 1, base_depth, &mut total)
 }
 
 /// Small trait so `validate_imported_topics` works against both the

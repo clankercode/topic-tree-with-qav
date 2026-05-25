@@ -1,27 +1,42 @@
 import { ChevronUp } from "lucide-react";
 import { sendWsMsg } from "../ws/manager";
 
+type VoteTarget =
+  | { kind: "question"; id: string }
+  | { kind: "topic"; id: string };
+
 interface VoteButtonProps {
-  questionId: string;
+  target: VoteTarget;
   voteCount: number;
   hasVoted: boolean;
   disabled?: boolean;
+  faded?: boolean;
 }
 
 export function VoteButton({
-  questionId,
+  target,
   voteCount,
   hasVoted,
   disabled,
+  faded,
 }: VoteButtonProps) {
   function handleVote() {
     if (disabled) return;
-    sendWsMsg({
-      v: 1,
-      type: "VoteQuestion",
-      questionId,
-      vote: !hasVoted,
-    });
+    if (target.kind === "question") {
+      sendWsMsg({
+        v: 1,
+        type: "VoteQuestion",
+        questionId: target.id,
+        vote: !hasVoted,
+      });
+    } else {
+      sendWsMsg({
+        v: 1,
+        type: "VoteTopic",
+        topicId: target.id,
+        vote: !hasVoted,
+      });
+    }
   }
 
   return (
@@ -32,7 +47,7 @@ export function VoteButton({
         hasVoted
           ? "border-[rgb(var(--primary))] bg-[rgb(var(--primary))] text-[rgb(var(--primary-fg))]"
           : "border-[rgb(var(--border))] bg-[rgb(var(--background))] text-[rgb(var(--muted))] hover:border-[rgb(var(--primary))] hover:text-[rgb(var(--primary))]"
-      } ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+      } ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"} ${faded ? "opacity-70" : ""}`}
       aria-label={hasVoted ? "Remove vote" : "Upvote"}
     >
       <ChevronUp size={14} />

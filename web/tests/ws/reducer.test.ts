@@ -22,6 +22,7 @@ function snapshot(over: Partial<RoomSnapshot> = {}): RoomSnapshot {
     boards: [],
     hands: [],
     myVotes: [],
+    myTopicVotes: [],
     focusedBoardId: null,
     activeTopicId: null,
     ...over,
@@ -61,6 +62,7 @@ function makeTopic(
     ord: 1.0,
     status: "pending" as const,
     createdAt: 1000,
+    voteCount: 0,
   };
 }
 
@@ -190,6 +192,7 @@ describe("ws reducer", () => {
         1n,
         snapshot({
           myVotes: [],
+          myTopicVotes: [],
         }),
       ),
     );
@@ -212,6 +215,30 @@ describe("ws reducer", () => {
     const s = useSessionStore.getState();
     expect(s.questions[0].voteCount).toBe(1);
     expect(s.myVotes.has("q1")).toBe(true);
+  });
+
+  it("TopicVoteUpdated changes vote count and myTopicVotes", () => {
+    applyServerMessage(
+      welcome(
+        1n,
+        snapshot({
+          topics: [makeTopic("t1", "Topic one")],
+          myTopicVotes: [],
+        }),
+      ),
+    );
+    applyServerMessage({
+      v: 1,
+      ts: 0n,
+      seq: 2n,
+      type: "TopicVoteUpdated",
+      topicId: "t1",
+      voteCount: 1,
+      voterGuestId: "g1",
+    });
+    const s = useSessionStore.getState();
+    expect(s.topics[0].voteCount).toBe(1);
+    expect(s.myTopicVotes.has("t1")).toBe(true);
   });
 
   it("BoardCreated adds board to list", () => {

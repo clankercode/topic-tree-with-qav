@@ -19,7 +19,7 @@ All shapes below are defined as Rust `#[derive(Serialize, Deserialize, TS)]` str
 
 ```rust
 struct Guest { guest_id: String; display_name: String; muted: bool; joined_at: i64 }
-struct Topic { id: String; parent_id: Option<String>; title: String; ord: f64; status: TopicStatus; created_at: i64 }
+struct Topic { id: String; parent_id: Option<String>; title: String; ord: f64; status: TopicStatus; created_at: i64; vote_count: u32 }
 enum   TopicStatus { Pending, Done }
 struct Question {
   id: String; room_id: String;
@@ -60,6 +60,7 @@ Boards inside `RoomSnapshot.boards` are *fat*: a Pen board carries its `strokes`
 | `SetDisplayName` | `{name}` | guest self |
 | `SubmitQuestion` | `{text, anonymous}` | guest |
 | `VoteQuestion` | `{questionId, vote: bool}` (true = upvote, false = retract) | guest |
+| `VoteTopic` | `{topicId, vote: bool}` (true = upvote, false = retract) | guest |
 | `AddTopic` | `{parentId?, title, afterId?}` | admin |
 | `RenameTopic` | `{topicId, title}` | admin |
 | `MoveTopic` | `{topicId, newParentId?, afterId?}` | admin |
@@ -107,6 +108,7 @@ Each event includes only the delta unless noted.
 | `QuestionUpdated` | `{question: Question}` |
 | `QuestionDeleted` | `{questionId}` |
 | `VoteUpdated` | `{questionId, voteCount, voterGuestId}` (clients track their own vote: if `voterGuestId == myGuestId`, the action toggled my vote) |
+| `TopicVoteUpdated` | `{topicId, voteCount, voterGuestId}` (same self-vote tracking via `myTopicVotes`) |
 | `TopicTreeUpdated` | `{topics: Topic[], activeTopicId}` (full tree — small enough; simpler than diffs) |
 | `BoardCreated` | `{board: Board}` |
 | `BoardUpdated` | `{board: Board}` |
@@ -139,6 +141,7 @@ type RoomSnapshot = {
   activeTopicId: string | null;
   questions: Question[];
   myVotes: string[];                 // questionIds I've voted on — drives "already voted" UI on reconnect
+  myTopicVotes: string[];            // topicIds I've voted on — same pattern for topic upvotes
   boards: Board[];                   // each board includes its full content (strokes/texts or scene)
   focusedBoardId: string | null;
   hands: RaisedHand[];               // current raised-hand queue (ephemeral)
@@ -168,6 +171,7 @@ type RoomSnapshot = {
 | `PenStrokeAppend` | 60 msg/s; each message may carry multiple `[x,y,pressure]` points batched per display frame |
 | `SubmitQuestion` | 6 msg/min |
 | `VoteQuestion` | 30 msg/min |
+| `VoteTopic` | 30 msg/min |
 | `RaiseHand` | 2 msg/min (lower → raise → lower → raise spam guard) |
 | `ImportTopicTree` | 6 msg/min with a 1-message burst |
 | All others | 20 msg/s blanket |

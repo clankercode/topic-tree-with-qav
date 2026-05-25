@@ -75,6 +75,13 @@ export type ClientMsg =
       vote: boolean;
     }
   | {
+      type: "VoteTopic";
+      v: number;
+      id: string | null;
+      topicId: string;
+      vote: boolean;
+    }
+  | {
       type: "MarkQuestionAnswered";
       v: number;
       id: string | null;
@@ -280,6 +287,7 @@ export type RoomSnapshot = {
   activeTopicId: string | null;
   questions: Array<Question>;
   myVotes: Array<string>;
+  myTopicVotes: Array<string>;
   boards: unknown[];
   focusedBoardId: string | null;
   hands: Array<RaisedHand>;
@@ -368,6 +376,15 @@ export type ServerMsg =
       ts: bigint;
       seq: bigint;
       questionId: string;
+      voteCount: number;
+      voterGuestId: string;
+    }
+  | {
+      type: "TopicVoteUpdated";
+      v: number;
+      ts: bigint;
+      seq: bigint;
+      topicId: string;
       voteCount: number;
       voterGuestId: string;
     }
@@ -508,6 +525,7 @@ export type Topic = {
   ord: number;
   status: TopicStatus;
   createdAt: bigint;
+  voteCount: number;
 };
 
 export type TopicStatus = "pending" | "done";

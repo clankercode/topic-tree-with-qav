@@ -70,6 +70,7 @@ function welcomeJson(seq: number) {
       boards: [],
       hands: [],
       myVotes: [],
+      myTopicVotes: [],
       focusedBoardId: null,
       activeTopicId: null,
     },

@@ -46,6 +46,13 @@ CREATE TABLE question_votes (
   PRIMARY KEY (question_id, guest_id)
 );
 
+CREATE TABLE topic_votes (
+  topic_id   TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+  guest_id   TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (topic_id, guest_id)
+);
+
 CREATE TABLE boards (
   id         TEXT PRIMARY KEY,
   room_id    TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,

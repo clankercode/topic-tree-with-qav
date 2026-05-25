@@ -61,6 +61,7 @@ pub struct Topic {
     pub ord: f64,
     pub status: TopicStatus,
     pub created_at: i64,
+    pub vote_count: u32,
 }
 
 /// Portable topic-tree node used by `ImportTopicTree`. The schema is
@@ -92,6 +93,15 @@ impl crate::validation::ImportedTopicLike for ImportedTopicNode {
     }
     fn children(&self) -> &[Self] {
         &self.children
+    }
+}
+
+impl crate::validation::TopicDepthLike for Topic {
+    fn topic_id(&self) -> &str {
+        &self.id
+    }
+    fn topic_parent_id(&self) -> Option<&str> {
+        self.parent_id.as_deref()
     }
 }
 
@@ -284,6 +294,7 @@ pub struct RoomSnapshot {
     pub active_topic_id: Option<String>,
     pub questions: Vec<Question>,
     pub my_votes: Vec<String>,
+    pub my_topic_votes: Vec<String>,
     #[cfg_attr(feature = "ts-gen", ts(type = "unknown[]"))]
     pub boards: Vec<JsonValue>,
     pub focused_board_id: Option<String>,
@@ -393,6 +404,13 @@ pub enum ClientMsg {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         question_id: String,
+        vote: bool,
+    },
+    VoteTopic {
+        v: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        topic_id: String,
         vote: bool,
     },
     MarkQuestionAnswered {
@@ -676,6 +694,14 @@ pub enum ServerMsg {
         vote_count: u32,
         voter_guest_id: String,
     },
+    TopicVoteUpdated {
+        v: u8,
+        ts: i64,
+        seq: u64,
+        topic_id: String,
+        vote_count: u32,
+        voter_guest_id: String,
+    },
     BoardCreated {
         v: u8,
         ts: i64,
@@ -902,6 +928,7 @@ mod tests {
             active_topic_id: None,
             questions: vec![],
             my_votes: vec![],
+            my_topic_votes: vec![],
             boards: vec![],
             focused_board_id: None,
             hands: vec![],
@@ -956,6 +983,7 @@ mod tests {
             ord: 1.0,
             status: TopicStatus::Pending,
             created_at: 12345,
+            vote_count: 3,
         };
         let s = serde_json::to_string(&t).unwrap();
         assert!(s.contains("\"id\":\"t1\""));
@@ -976,6 +1004,7 @@ mod tests {
                 ord: 1.0,
                 status: TopicStatus::Pending,
                 created_at: 100,
+                vote_count: 0,
             }],
             active_topic_id: Some("t1".into()),
         };

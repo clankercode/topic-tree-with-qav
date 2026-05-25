@@ -18,7 +18,15 @@ function topic(
   ord: number,
   title: string,
 ): Topic {
-  return { id, parentId, title, ord, status: "pending", createdAt: 0 };
+  return {
+    id,
+    parentId,
+    title,
+    ord,
+    status: "pending",
+    createdAt: 0,
+    voteCount: 0,
+  };
 }
 
 describe("buildExportPayload", () => {

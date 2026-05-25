@@ -681,7 +681,8 @@ async fn dispatch_intent(ctx: &mut SessionCtx<'_>, msg: ClientMsg) -> Result<(),
         | ClientMsg::DeleteTopic { .. }
         | ClientMsg::SetActiveTopic { .. }
         | ClientMsg::MarkTopicDone { .. }
-        | ClientMsg::ImportTopicTree { .. } => crate::intents::topics::handle(ctx, msg).await,
+        | ClientMsg::ImportTopicTree { .. }
+        | ClientMsg::VoteTopic { .. } => crate::intents::topics::handle(ctx, msg).await,
         ClientMsg::SubmitQuestion { .. }
         | ClientMsg::VoteQuestion { .. }
         | ClientMsg::MarkQuestionAnswered { .. }

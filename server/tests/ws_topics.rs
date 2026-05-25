@@ -378,3 +378,64 @@ fn seed_room_topics(db: &server::Db, room_id: &str, count: usize) {
     }
     tx.commit().expect("commit seed topics");
 }
+
+#[tokio::test]
+async fn add_topic_rejects_when_max_depth_exceeded() {
+    let app = TestApp::spawn().await;
+    let room = app.create_room(None).await;
+    let mut host = app.connect_ws(&room.room_id).await;
+    host.send_json(&host_hello("h", "Host", &room.admin_token))
+        .await;
+    let _ = host
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Welcome")
+        .await;
+
+    let mut parent_id: Option<String> = None;
+    for i in 0..10 {
+        let id = format!("depth-{i}");
+        host.send_json(&serde_json::json!({
+            "type": "AddTopic",
+            "v": 1,
+            "id": id,
+            "parentId": parent_id,
+            "title": format!("Level {i}"),
+        }))
+        .await;
+        let _ = host
+            .await_msg(Duration::from_secs(2), |v| {
+                v["type"] == "Ack" && v["refId"] == id
+            })
+            .await;
+        let db_for_poll = app.db.clone();
+        let room_id_for_poll = room.room_id.clone();
+        let title = format!("Level {i}");
+        await_until(
+            &format!("level {i} topic persisted"),
+            Duration::from_secs(2),
+            || {
+                read_topics_for_test(&db_for_poll, &room_id_for_poll)
+                    .iter()
+                    .any(|(_, _, t, _, _)| t == &title)
+            },
+        )
+        .await;
+        parent_id = read_topics_for_test(&app.db, &room.room_id)
+            .into_iter()
+            .find(|(_, _, t, _, _)| t == &format!("Level {i}"))
+            .map(|(id, _, _, _, _)| id);
+    }
+
+    host.send_json(&serde_json::json!({
+        "type": "AddTopic",
+        "v": 1,
+        "id": "too-deep",
+        "parentId": parent_id,
+        "title": "Level 11",
+    }))
+    .await;
+    let err = host
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Error")
+        .await;
+    assert_eq!(err["refId"], "too-deep");
+    assert_eq!(err["code"], "bad_request");
+}

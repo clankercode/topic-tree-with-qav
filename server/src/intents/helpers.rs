@@ -220,6 +220,24 @@ pub(crate) fn broadcast_vote_updated(
     let _ = room.broadcast.send(msg);
 }
 
+pub(crate) fn broadcast_topic_vote_updated(
+    room: &Arc<Room>,
+    topic_id: &str,
+    vote_count: u32,
+    voter_guest_id: &str,
+) {
+    let seq = room.next_seq();
+    let msg = ServerMsg::TopicVoteUpdated {
+        v: PROTOCOL_VERSION,
+        ts: now_ms(),
+        seq,
+        topic_id: topic_id.to_string(),
+        vote_count,
+        voter_guest_id: voter_guest_id.to_string(),
+    };
+    let _ = room.broadcast.send(msg);
+}
+
 pub(crate) fn broadcast_board_created(room: &Arc<Room>, board: &Board) {
     let seq = room.next_seq();
     let msg = ServerMsg::BoardCreated {

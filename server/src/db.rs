@@ -222,9 +222,14 @@ pub struct WriteOp {
 #[derive(Debug, Clone)]
 pub enum WriteOpKind {
     /// Insert or update a topic row.
-    UpsertTopic { topic: Topic },
+    UpsertTopic {
+        topic: Topic,
+    },
     /// Rename only — leaves parent_id / ord / status untouched.
-    RenameTopic { topic_id: String, title: String },
+    RenameTopic {
+        topic_id: String,
+        title: String,
+    },
     /// Move under a (possibly new) parent at the given ord.
     MoveTopic {
         topic_id: String,
@@ -237,18 +242,29 @@ pub enum WriteOpKind {
         status: crate::proto::TopicStatus,
     },
     /// Delete a topic. SQLite FK cascades to descendants.
-    DeleteTopic { topic_id: String },
+    DeleteTopic {
+        topic_id: String,
+    },
     /// Update `rooms.active_topic_id`. `None` clears it.
-    SetActiveTopic { topic_id: Option<String> },
+    SetActiveTopic {
+        topic_id: Option<String>,
+    },
 
     /// Insert or update a question row. The `vote_count` field is
     /// **not** persisted — it's a derived column computed from
     /// `question_votes` on hydration.
-    UpsertQuestion { question: Question },
+    UpsertQuestion {
+        question: Question,
+    },
     /// Flip `questions.answered`.
-    SetQuestionAnswered { question_id: String, answered: bool },
+    SetQuestionAnswered {
+        question_id: String,
+        answered: bool,
+    },
     /// Delete a question. FK cascade removes its votes.
-    DeleteQuestion { question_id: String },
+    DeleteQuestion {
+        question_id: String,
+    },
     /// Record a guest's vote on a question. `INSERT OR IGNORE` keeps
     /// dedup; broadcast count is the in-memory authoritative source.
     AddVote {
@@ -261,25 +277,48 @@ pub enum WriteOpKind {
         question_id: String,
         guest_id: String,
     },
+    AddTopicVote {
+        topic_id: String,
+        guest_id: String,
+        created_at: i64,
+    },
+    RemoveTopicVote {
+        topic_id: String,
+        guest_id: String,
+    },
     /// Atomic: insert a topic AND delete a question, one transaction.
     /// See `.plan/2026-05-25-followup/persistence.md` §3 Questions.
-    PromoteQuestionToTopic { question_id: String, topic: Topic },
+    PromoteQuestionToTopic {
+        question_id: String,
+        topic: Topic,
+    },
 
     /// Task #13: bulk-insert a pre-resolved tree of topics in one
     /// transaction. The caller has already generated UUIDs and
     /// resolved every parent_id in topological order (parent row
     /// precedes child row in the Vec). Atomic so a malformed import
     /// never leaves a partial tree on disk.
-    BulkUpsertTopics { topics: Vec<Topic> },
+    BulkUpsertTopics {
+        topics: Vec<Topic>,
+    },
 
     /// Insert or update a board row.
-    UpsertBoard { board: Board },
+    UpsertBoard {
+        board: Board,
+    },
     /// Rename only.
-    RenameBoard { board_id: String, title: String },
+    RenameBoard {
+        board_id: String,
+        title: String,
+    },
     /// Delete a board. FK cascades to strokes/texts/actions/scenes.
-    DeleteBoard { board_id: String },
+    DeleteBoard {
+        board_id: String,
+    },
     /// Update `rooms.focused_board_id`. `None` clears.
-    SetFocusedBoard { board_id: Option<String> },
+    SetFocusedBoard {
+        board_id: Option<String>,
+    },
 
     /// Insert or replace the excalidraw scene blob for a board.
     UpsertExcalidrawScene {

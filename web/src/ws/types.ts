@@ -16,6 +16,7 @@ export interface Topic {
   ord: number;
   status: TopicStatus;
   createdAt: number;
+  voteCount: number;
 }
 
 export interface Question {
@@ -100,6 +101,7 @@ export interface RoomSnapshot {
   boards: FatBoard[];
   hands: RaisedHand[];
   myVotes: string[];
+  myTopicVotes: string[];
   focusedBoardId: string | null;
   activeTopicId: string | null;
 }
@@ -136,6 +138,12 @@ export type ServerMsg =
   | (Envelope & {
       type: "VoteUpdated";
       questionId: string;
+      voteCount: number;
+      voterGuestId: string;
+    })
+  | (Envelope & {
+      type: "TopicVoteUpdated";
+      topicId: string;
       voteCount: number;
       voterGuestId: string;
     })

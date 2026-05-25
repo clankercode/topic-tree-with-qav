@@ -63,6 +63,16 @@ export function applyServerMessage(msg: ServerMsg): void {
       );
       return;
     }
+    case "TopicVoteUpdated": {
+      const m = msg as Extract<ServerMsg, { type: "TopicVoteUpdated" }>;
+      store.applyTopicVoteUpdated(
+        m.topicId,
+        m.voteCount,
+        m.voterGuestId,
+        msg.seq,
+      );
+      return;
+    }
     case "BoardCreated": {
       const m = msg as Extract<ServerMsg, { type: "BoardCreated" }>;
       store.applyBoardCreated(m.board, msg.seq);

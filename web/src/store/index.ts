@@ -55,6 +55,7 @@ export interface SessionState {
   activeTopicId: string | null;
   questions: Question[];
   myVotes: Set<string>;
+  myTopicVotes: Set<string>;
   boards: FatBoard[];
   focusedBoardId: string | null;
   penBoards: Map<string, PenBoardContent>;
@@ -81,6 +82,12 @@ export interface SessionState {
   applyQuestionDeleted(questionId: string, seq: bigint): void;
   applyVoteUpdated(
     questionId: string,
+    voteCount: number,
+    voterGuestId: string,
+    seq: bigint,
+  ): void;
+  applyTopicVoteUpdated(
+    topicId: string,
     voteCount: number,
     voterGuestId: string,
     seq: bigint,
@@ -173,6 +180,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   activeTopicId: null,
   questions: [],
   myVotes: new Set<string>(),
+  myTopicVotes: new Set<string>(),
   boards: [],
   focusedBoardId: null,
   penBoards: new Map(),
@@ -205,6 +213,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       activeTopicId: snapshot.activeTopicId,
       questions: snapshot.questions,
       myVotes: new Set(snapshot.myVotes),
+      myTopicVotes: new Set(snapshot.myTopicVotes ?? []),
       boards,
       focusedBoardId: snapshot.focusedBoardId,
       penBoards,
@@ -302,6 +311,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           q.id === questionId ? { ...q, voteCount } : q,
         ),
         myVotes: newMyVotes,
+        lastSeq: seq,
+      };
+    });
+  },
+  applyTopicVoteUpdated(topicId, voteCount, voterGuestId, seq) {
+    set((state) => {
+      const newMyTopicVotes = new Set(state.myTopicVotes);
+      if (voterGuestId === state.me?.guestId) {
+        if (newMyTopicVotes.has(topicId)) {
+          newMyTopicVotes.delete(topicId);
+        } else {
+          newMyTopicVotes.add(topicId);
+        }
+      }
+      return {
+        topics: state.topics.map((t) =>
+          t.id === topicId ? { ...t, voteCount } : t,
+        ),
+        myTopicVotes: newMyTopicVotes,
         lastSeq: seq,
       };
     });
@@ -522,6 +550,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       activeTopicId: null,
       questions: [],
       myVotes: new Set(),
+      myTopicVotes: new Set(),
       boards: [],
       focusedBoardId: null,
       penBoards: new Map(),
@@ -567,6 +596,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         ord: maxOrd + 1,
         status: "pending",
         createdAt: Date.now(),
+        voteCount: 0,
       };
       return {
         topics: [...state.topics, newTopic],

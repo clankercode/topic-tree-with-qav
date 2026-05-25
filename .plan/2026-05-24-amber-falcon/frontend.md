@@ -123,11 +123,19 @@ RootLayout
 
 ### Topic tree (host)
 
-- Inline edit (double-click title).
-- Drag to reorder + indent (one-level at a time via Tab/Shift-Tab when editing).
+- Inline edit (double-click title) or Rename button.
+- Add subtopic per node; drag to reorder within sibling lists; drop on a node to reparent as last child; Tab/Shift-Tab indent/outdent while editing.
+- Collapsible nodes (local browser state only); collapsed rows show subtopic count.
+- Max nesting depth: 10 levels (server-enforced on add/move/import).
 - "Active" is a single radio across all topics. Clicking "set active" on a new topic auto-marks the previously-active as done.
 - Done topics: muted color + checkmark; can re-open by clicking the check.
 - Keyboard shortcut on host: `j` / `k` advances to next/prev pending topic + sets active (presenter mode).
+
+### Topic tree (guest)
+
+- Vote button (+1, toggle retract) on each topic; same dedup/rate-limit pattern as Q&A.
+- Done topics remain voteable with faded styling.
+- Vote counts are display-only; host controls order via drag/`ord`.
 
 ### Q&A
 
@@ -149,7 +157,7 @@ RootLayout
 
 ### Moderation (host)
 
-- **Per-guest menu** (from `PresenceHoverCard`): mute / unmute (toggle; muted guests can't `SubmitQuestion`/`VoteQuestion`/`RaiseHand`), kick (close ws + add to room blocklist). No host-side rename — guests own their display name via `SetDisplayName`.
+- **Per-guest menu** (from `PresenceHoverCard`): mute / unmute (toggle; muted guests can't `SubmitQuestion`/`VoteQuestion`/`VoteTopic`/`RaiseHand`), kick (close ws + add to room blocklist). No host-side rename — guests own their display name via `SetDisplayName`.
 - **Per-question menu** (host only, on `QuestionItem`): delete, mark answered (toggle), **promote to topic** (atomically creates a new topic-tree node from the question and deletes the question via `PromoteQuestionToTopic`).
 
 ### Presence
