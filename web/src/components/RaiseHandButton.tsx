@@ -1,13 +1,18 @@
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Hand, X } from "lucide-react";
 import { useSessionStore } from "../store";
 import { sendWsMsg } from "../ws/manager";
+import { useModalFocus } from "./useModalFocus";
 
 export function RaiseHandButton() {
   const me = useSessionStore((s) => s.me);
   const hands = useSessionStore((s) => s.hands);
   const [open, setOpen] = useState(false);
   const [topic, setTopic] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const titleId = useId();
+  useModalFocus(open, dialogRef, () => setOpen(false), inputRef);
 
   if (me?.role !== "guest") return null;
 
@@ -62,10 +67,21 @@ export function RaiseHandButton() {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded-lg w-80 space-y-4 p-6">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={handleClose}
+        >
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded-lg w-80 space-y-4 p-6"
+          >
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold">
+              <h2 id={titleId} className="text-base font-semibold">
                 {isRaised ? "Update your topic" : "Raise your hand"}
               </h2>
               <button
@@ -80,13 +96,13 @@ export function RaiseHandButton() {
             </p>
             <div className="space-y-2">
               <input
+                ref={inputRef}
                 type="text"
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
                 placeholder="e.g. Can you explain closures?"
                 className="w-full px-3 py-2 rounded border border-[rgb(var(--border))] bg-[rgb(var(--bg))] text-sm"
                 maxLength={80}
-                autoFocus
               />
               <div className="flex justify-between text-xs text-[rgb(var(--muted))]">
                 <span className={wordCount > 10 ? "text-red-500" : ""}>

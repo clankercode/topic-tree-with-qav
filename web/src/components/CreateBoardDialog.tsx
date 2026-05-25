@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { sendWsMsg } from "../ws/manager";
 import type { BoardKind } from "../ws/types";
+import { useModalFocus } from "./useModalFocus";
 
 interface Props {
   open: boolean;
@@ -10,6 +11,18 @@ interface Props {
 export function CreateBoardDialog({ open, onClose }: Props) {
   const [kind, setKind] = useState<BoardKind>("excalidraw");
   const [title, setTitle] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const initialFocusRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+
+  useModalFocus(open, dialogRef, onClose, initialFocusRef);
+
+  useEffect(() => {
+    if (open) {
+      setKind("excalidraw");
+      setTitle("");
+    }
+  }, [open]);
 
   if (!open) return null;
 
@@ -25,14 +38,28 @@ export function CreateBoardDialog({ open, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded-lg p-6 w-80 space-y-4">
-        <h2 className="text-lg font-semibold">Create Board</h2>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      onClick={onClose}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded-lg p-6 w-80 space-y-4"
+      >
+        <h2 id={titleId} className="text-lg font-semibold">
+          Create Board
+        </h2>
         <div className="space-y-2">
           <label className="block text-sm font-medium">Board Type</label>
           <div className="flex gap-2">
             <button
               type="button"
+              ref={initialFocusRef}
               onClick={() => setKind("pen")}
               className={`flex-1 p-2 rounded border ${
                 kind === "pen"
