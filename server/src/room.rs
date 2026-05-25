@@ -935,13 +935,14 @@ impl Room {
         board_id: &str,
         strokes: Vec<PenStroke>,
         texts: Vec<crate::proto::PenText>,
+        action_log: Vec<PenAction>,
     ) {
         let mut g = self.inner.lock().expect("room inner");
         let max_stroke_ord = strokes.iter().map(|s| s.ord).max().unwrap_or(0);
         let state = PenBoardState {
             strokes,
             texts,
-            action_log: Vec::new(),
+            action_log,
             next_stroke_ord: max_stroke_ord + 1,
         };
         g.pen_boards.insert(board_id.to_string(), state);
@@ -1335,7 +1336,13 @@ fn hydrate_room_from_db(room: &Room, db: &Db, room_id: &str) -> Result<(), DbErr
         .filter(|b| matches!(b.kind, BoardKind::Pen))
         .map(|b| b.id.clone())
         .collect();
-    let mut pen_loads: Vec<(String, Vec<PenStroke>, Vec<crate::proto::PenText>)> = Vec::new();
+    struct PenLoad {
+        board_id: String,
+        strokes: Vec<PenStroke>,
+        texts: Vec<crate::proto::PenText>,
+        action_log: Vec<PenAction>,
+    }
+    let mut pen_loads: Vec<PenLoad> = Vec::new();
     for board_id in &pen_board_ids {
         let strokes: Vec<PenStroke> = {
             let mut stmt = tx.prepare(
@@ -1374,7 +1381,40 @@ fn hydrate_room_from_db(room: &Room, db: &Db, room_id: &str) -> Result<(), DbErr
             })?;
             rows.collect::<Result<Vec<_>, _>>()?
         };
-        pen_loads.push((board_id.clone(), strokes, texts));
+        // Hydrate the action log so that PenUndo works across
+        // restarts. Without this, undo-after-restart no-ops because
+        // the in-memory log is empty even though pen_actions rows
+        // exist on disk.
+        let action_log: Vec<PenAction> = {
+            let mut stmt = tx.prepare(
+                "SELECT id, kind, target_id, ord, created_at FROM pen_actions \
+                 WHERE board_id = ?1 ORDER BY ord",
+            )?;
+            let rows = stmt.query_map(rusqlite::params![board_id], |r| {
+                let kind_s: String = r.get(1)?;
+                let kind = match kind_s.as_str() {
+                    "stroke_begin" => PenActionKind::StrokeBegin,
+                    "text_set" => PenActionKind::TextSet,
+                    "text_delete" => PenActionKind::TextDelete,
+                    "clear" => PenActionKind::Clear,
+                    _ => PenActionKind::StrokeBegin,
+                };
+                Ok(PenAction {
+                    id: r.get(0)?,
+                    kind,
+                    target_id: r.get(2)?,
+                    ord: r.get::<_, i64>(3)? as u32,
+                    created_at: r.get(4)?,
+                })
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        pen_loads.push(PenLoad {
+            board_id: board_id.clone(),
+            strokes,
+            texts,
+            action_log,
+        });
     }
 
     tx.commit()?;
@@ -1386,8 +1426,8 @@ fn hydrate_room_from_db(room: &Room, db: &Db, room_id: &str) -> Result<(), DbErr
     room.load_topics(topics, active_topic_id);
     room.load_questions(questions, votes);
     room.load_boards(boards, scenes, focused_board_id);
-    for (board_id, strokes, texts) in pen_loads {
-        room.load_pen_board_state(&board_id, strokes, texts);
+    for load in pen_loads {
+        room.load_pen_board_state(&load.board_id, load.strokes, load.texts, load.action_log);
     }
     Ok(())
 }

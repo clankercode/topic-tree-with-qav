@@ -14,13 +14,19 @@ vi.mock("../../src/ws/manager", () => ({
   sendWsMsg: vi.fn(),
 }));
 
-function topic(id: string, parentId: string | null, ord: number, title: string): Topic {
+function topic(
+  id: string,
+  parentId: string | null,
+  ord: number,
+  title: string,
+): Topic {
   return {
     id,
     parentId,
     title,
     ord,
     status: "pending",
+    createdAt: 0,
   };
 }
 

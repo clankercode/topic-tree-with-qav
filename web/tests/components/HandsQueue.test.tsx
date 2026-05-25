@@ -4,7 +4,7 @@
 // header button.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, within } from "@testing-library/react";
+import { render } from "@testing-library/react";
 
 import { HandsQueue } from "../../src/components/HandsQueue";
 import { useSessionStore } from "../../src/store";
@@ -24,8 +24,18 @@ describe("HandsQueue", () => {
       hands: [
         // Insertion order intentionally non-FIFO; component must
         // re-sort.
-        { guestId: "g-bob", displayName: "Bob", topic: "Bob ask", raisedAt: 200 },
-        { guestId: "g-amy", displayName: "Amy", topic: "Amy ask", raisedAt: 100 },
+        {
+          guestId: "g-bob",
+          displayName: "Bob",
+          topic: "Bob ask",
+          raisedAt: 200,
+        },
+        {
+          guestId: "g-amy",
+          displayName: "Amy",
+          topic: "Amy ask",
+          raisedAt: 100,
+        },
       ],
     });
     const { container } = render(<HandsQueue />);

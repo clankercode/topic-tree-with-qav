@@ -19,7 +19,10 @@ import { TopicNode } from "./TopicNode";
 import { Plus } from "lucide-react";
 import { AddTopicModal } from "./AddTopicModal";
 import type { Topic } from "../ws/types";
-import { TopicChildrenProvider, type ChildrenIndex } from "./TopicChildrenContext";
+import {
+  TopicChildrenProvider,
+  type ChildrenIndex,
+} from "./TopicChildrenContext";
 
 const ROOT_KEY = "__root__";
 
@@ -30,7 +33,8 @@ function buildChildrenIndex(topics: Topic[]): ChildrenIndex {
   const known = new Set(topics.map((t) => t.id));
   const map = new Map<string, Topic[]>();
   for (const t of topics) {
-    const key = t.parentId == null || !known.has(t.parentId) ? ROOT_KEY : t.parentId;
+    const key =
+      t.parentId == null || !known.has(t.parentId) ? ROOT_KEY : t.parentId;
     const existing = map.get(key);
     if (existing) existing.push(t);
     else map.set(key, [t]);

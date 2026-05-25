@@ -5,7 +5,7 @@ set -euo pipefail
 
 export PATH="$HOME/.local/bin:$PATH"
 
-SRC="e2e/screenshots/_docs"
+SRC="e2e/.docs-snapshots"
 DST="docs/public/screenshots"
 
 if [[ -d "$SRC" ]]; then

@@ -117,3 +117,46 @@ async fn set_active_topic_marks_previous_active_as_done() {
     assert_eq!(t1.4, "done", "previously active topic flipped to done");
     assert_eq!(t2.4, "pending", "newly active topic stays pending");
 }
+
+/// Regression: a host attempting `AddTopic` with a parent_id that
+/// points at no known topic must be rejected with `bad_request`
+/// *before* the in-memory mutation or writer enqueue. Without this,
+/// the writer's FK enforcement aborted the entire batch, losing any
+/// other writes piggybacking on it.
+#[tokio::test]
+async fn add_topic_with_unknown_parent_rejects_before_mutate() {
+    let app = TestApp::spawn().await;
+    let room = app.create_room(None).await;
+    let mut host = app.connect_ws(&room.room_id).await;
+    host.send_json(&host_hello("h", "Host", &room.admin_token))
+        .await;
+    let _ = host
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Welcome")
+        .await;
+
+    host.send_json(&serde_json::json!({
+        "type": "AddTopic",
+        "v": 1,
+        "id": "bad-parent",
+        "title": "should be rejected",
+        "parentId": "this-topic-does-not-exist",
+    }))
+    .await;
+    let err = host
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Error")
+        .await;
+    assert_eq!(err["refId"], "bad-parent");
+    assert_eq!(err["code"], "bad_request");
+    assert!(
+        err["message"].as_str().unwrap_or("").contains("parent_id"),
+        "error message should call out parent_id; got {err}"
+    );
+
+    // Give the writer a beat — DB must still have zero topics.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let rows = read_topics_for_test(&app.db, &room.room_id);
+    assert!(
+        rows.is_empty(),
+        "no topic should have been persisted; got {rows:?}"
+    );
+}

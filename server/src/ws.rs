@@ -692,6 +692,24 @@ async fn handle_text(
             Ok(())
         }
         ClientMsg::GetSnapshot { id, .. } => {
+            // Without this gate a guest can spam GetSnapshot and force
+            // the server to render the room's full state on each call.
+            // The 5/sec cap mirrors the "all others" 20 msg/s catch-all
+            // budget in protocol.md §rate-limits but is tighter because
+            // each snapshot is much more expensive than a typical intent.
+            if !global_rate_limiter().check(client_id, "GetSnapshot", Quota::per_second(5.0)) {
+                let _ = send(
+                    sink,
+                    &error_frame(
+                        error_codes::RATE_LIMIT,
+                        "snapshot rate exceeded",
+                        id,
+                        room.current_seq(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
             let snap = room.snapshot_for(
                 You {
                     client_id: client_id.to_string(),
@@ -748,16 +766,53 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
+            // Reject parent_id / after_id pointing at topics that
+            // don't exist. Without this gate the in-memory mutation +
+            // ws broadcast race ahead of the writer, which then trips
+            // a FK error and drops the whole batch (review finding,
+            // 2026-05-25 round). Validating in-memory before
+            // mutating keeps DB and clients in sync.
+            let known_topics = room.topics();
+            if let Some(p) = parent_id.as_ref() {
+                if !known_topics.iter().any(|t| &t.id == p) {
+                    let _ = send(
+                        sink,
+                        &error_frame(
+                            error_codes::BAD_REQUEST,
+                            "parent_id refers to a topic that no longer exists",
+                            id,
+                            room.current_seq(),
+                        ),
+                    )
+                    .await;
+                    return Ok(());
+                }
+            }
+            if let Some(a) = after_id.as_ref() {
+                if !known_topics.iter().any(|t| &t.id == a) {
+                    let _ = send(
+                        sink,
+                        &error_frame(
+                            error_codes::BAD_REQUEST,
+                            "after_id refers to a topic that no longer exists",
+                            id,
+                            room.current_seq(),
+                        ),
+                    )
+                    .await;
+                    return Ok(());
+                }
+            }
             let topic_id = Uuid::new_v4().to_string();
             let now = now_ms();
             let ord = if let Some(after) = after_id {
-                room.topics()
+                known_topics
                     .iter()
                     .find(|t| t.id == after)
                     .map(|t| t.ord + 0.5)
                     .unwrap_or(1.0)
             } else {
-                room.topics().iter().map(|t| t.ord).fold(0.0, f64::max) + 1.0
+                known_topics.iter().map(|t| t.ord).fold(0.0, f64::max) + 1.0
             };
             let topic = Topic {
                 id: topic_id,
@@ -857,8 +912,43 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
+            // Same FK pre-check as AddTopic: bail before mutating if
+            // new_parent_id or after_id name a topic that no longer
+            // exists. Prevents writer-FK failures from killing the
+            // batch.
+            let known_topics = room.topics();
+            if let Some(p) = new_parent_id.as_ref() {
+                if !known_topics.iter().any(|t| &t.id == p) {
+                    let _ = send(
+                        sink,
+                        &error_frame(
+                            error_codes::BAD_REQUEST,
+                            "new_parent_id refers to a topic that no longer exists",
+                            id,
+                            room.current_seq(),
+                        ),
+                    )
+                    .await;
+                    return Ok(());
+                }
+            }
+            if let Some(a) = after_id.as_ref() {
+                if !known_topics.iter().any(|t| &t.id == a) {
+                    let _ = send(
+                        sink,
+                        &error_frame(
+                            error_codes::BAD_REQUEST,
+                            "after_id refers to a topic that no longer exists",
+                            id,
+                            room.current_seq(),
+                        ),
+                    )
+                    .await;
+                    return Ok(());
+                }
+            }
             let ord = if let Some(after) = after_id {
-                room.topics()
+                known_topics
                     .iter()
                     .find(|t| t.id == *after)
                     .map(|t| t.ord + 0.001)
