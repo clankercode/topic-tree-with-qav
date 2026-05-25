@@ -16,7 +16,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
 
-use crate::proto::{Question, Topic};
+use crate::proto::{Board, Question, Topic};
 
 mod embedded {
     refinery::embed_migrations!("./migrations");
@@ -266,6 +266,39 @@ pub enum WriteOpKind {
     PromoteQuestionToTopic {
         question_id: String,
         topic: Topic,
+    },
+
+    /// Insert or update a board row.
+    UpsertBoard { board: Board },
+    /// Rename only.
+    RenameBoard { board_id: String, title: String },
+    /// Delete a board. FK cascades to strokes/texts/actions/scenes.
+    DeleteBoard { board_id: String },
+    /// Update `rooms.focused_board_id`. `None` clears.
+    SetFocusedBoard { board_id: Option<String> },
+
+    /// Insert or replace the excalidraw scene blob for a board.
+    UpsertExcalidrawScene {
+        board_id: String,
+        scene_version: u64,
+        elements_json: String,
+        app_state_json: String,
+        updated_at: i64,
+    },
+
+    /// Set the kicked flag for a guest. Preserves the existing muted
+    /// flag — see `Db::set_kicked` semantics (`server/src/db.rs:70`).
+    SetKicked {
+        guest_id: String,
+        kicked: bool,
+        updated_at: i64,
+    },
+    /// Set the muted flag for a guest. Preserves the existing kicked
+    /// flag — see `Db::set_muted` semantics.
+    SetMuted {
+        guest_id: String,
+        muted: bool,
+        updated_at: i64,
     },
 }
 

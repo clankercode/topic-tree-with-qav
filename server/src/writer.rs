@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 use crate::db::{Db, DbError, WriteOp, WriteOpKind};
-use crate::proto::{Question, Topic, TopicStatus};
+use crate::proto::{Board, BoardKind, Question, Topic, TopicStatus};
 
 pub type WriteSender = UnboundedSender<WriteOp>;
 pub type WriteReceiver = UnboundedReceiver<WriteOp>;
@@ -132,6 +132,36 @@ pub(crate) fn apply_op_in_tx(tx: &Transaction<'_>, op: &WriteOp) -> Result<(), D
             apply_upsert_topic(tx, &op.room_id, topic)?;
             apply_delete_question(tx, question_id)
         }
+        WriteOpKind::UpsertBoard { board } => apply_upsert_board(tx, &op.room_id, board),
+        WriteOpKind::RenameBoard { board_id, title } => apply_rename_board(tx, board_id, title),
+        WriteOpKind::DeleteBoard { board_id } => apply_delete_board(tx, board_id),
+        WriteOpKind::SetFocusedBoard { board_id } => {
+            apply_set_focused_board(tx, &op.room_id, board_id.as_deref())
+        }
+        WriteOpKind::UpsertExcalidrawScene {
+            board_id,
+            scene_version,
+            elements_json,
+            app_state_json,
+            updated_at,
+        } => apply_upsert_excalidraw_scene(
+            tx,
+            board_id,
+            *scene_version,
+            elements_json,
+            app_state_json,
+            *updated_at,
+        ),
+        WriteOpKind::SetKicked {
+            guest_id,
+            kicked,
+            updated_at,
+        } => apply_set_kicked(tx, &op.room_id, guest_id, *kicked, *updated_at),
+        WriteOpKind::SetMuted {
+            guest_id,
+            muted,
+            updated_at,
+        } => apply_set_muted(tx, &op.room_id, guest_id, *muted, *updated_at),
     }
 }
 
@@ -301,6 +331,135 @@ fn apply_remove_vote(
     Ok(())
 }
 
+fn board_kind_str(k: &BoardKind) -> &'static str {
+    match k {
+        BoardKind::Pen => "pen",
+        BoardKind::Excalidraw => "excalidraw",
+    }
+}
+
+fn apply_upsert_board(
+    tx: &Transaction<'_>,
+    room_id: &str,
+    b: &Board,
+) -> Result<(), DbError> {
+    tx.execute(
+        "INSERT INTO boards (id, room_id, kind, title, ord, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+         ON CONFLICT(id) DO UPDATE SET \
+           title = excluded.title, \
+           ord   = excluded.ord",
+        rusqlite::params![
+            b.id,
+            room_id,
+            board_kind_str(&b.kind),
+            b.title,
+            b.ord,
+            b.created_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn apply_rename_board(
+    tx: &Transaction<'_>,
+    board_id: &str,
+    title: &str,
+) -> Result<(), DbError> {
+    tx.execute(
+        "UPDATE boards SET title = ?1 WHERE id = ?2",
+        rusqlite::params![title, board_id],
+    )?;
+    Ok(())
+}
+
+fn apply_delete_board(tx: &Transaction<'_>, board_id: &str) -> Result<(), DbError> {
+    tx.execute(
+        "DELETE FROM boards WHERE id = ?1",
+        rusqlite::params![board_id],
+    )?;
+    Ok(())
+}
+
+fn apply_set_focused_board(
+    tx: &Transaction<'_>,
+    room_id: &str,
+    board_id: Option<&str>,
+) -> Result<(), DbError> {
+    tx.execute(
+        "UPDATE rooms SET focused_board_id = ?1 WHERE id = ?2",
+        rusqlite::params![board_id, room_id],
+    )?;
+    Ok(())
+}
+
+fn apply_upsert_excalidraw_scene(
+    tx: &Transaction<'_>,
+    board_id: &str,
+    scene_version: u64,
+    elements_json: &str,
+    app_state_json: &str,
+    updated_at: i64,
+) -> Result<(), DbError> {
+    // scene_version monotonically grows on the client; the writer just
+    // accepts what the handler sent. INSERT … ON CONFLICT does the
+    // upsert without two round-trips.
+    tx.execute(
+        "INSERT INTO excalidraw_scenes (board_id, scene_version, elements_json, \
+                                        app_state_json, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5) \
+         ON CONFLICT(board_id) DO UPDATE SET \
+           scene_version  = excluded.scene_version, \
+           elements_json  = excluded.elements_json, \
+           app_state_json = excluded.app_state_json, \
+           updated_at     = excluded.updated_at",
+        rusqlite::params![
+            board_id,
+            scene_version as i64,
+            elements_json,
+            app_state_json,
+            updated_at
+        ],
+    )?;
+    Ok(())
+}
+
+fn apply_set_kicked(
+    tx: &Transaction<'_>,
+    room_id: &str,
+    guest_id: &str,
+    kicked: bool,
+    updated_at: i64,
+) -> Result<(), DbError> {
+    tx.execute(
+        "INSERT INTO moderation (room_id, guest_id, kicked, muted, updated_at) \
+         VALUES (?1, ?2, ?3, 0, ?4) \
+         ON CONFLICT(room_id, guest_id) DO UPDATE SET \
+           kicked     = ?3, \
+           updated_at = ?4",
+        rusqlite::params![room_id, guest_id, kicked as i32, updated_at],
+    )?;
+    Ok(())
+}
+
+fn apply_set_muted(
+    tx: &Transaction<'_>,
+    room_id: &str,
+    guest_id: &str,
+    muted: bool,
+    updated_at: i64,
+) -> Result<(), DbError> {
+    tx.execute(
+        "INSERT INTO moderation (room_id, guest_id, kicked, muted, updated_at) \
+         VALUES (?1, ?2, 0, ?3, ?4) \
+         ON CONFLICT(room_id, guest_id) DO UPDATE SET \
+           muted      = ?3, \
+           updated_at = ?4",
+        rusqlite::params![room_id, guest_id, muted as i32, updated_at],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,6 +472,16 @@ mod tests {
             [room_id],
         )
         .unwrap();
+    }
+
+    fn board(id: &str, kind: BoardKind, title: &str, ord: f64) -> Board {
+        Board {
+            id: id.into(),
+            kind,
+            title: title.into(),
+            created_at: 0,
+            ord,
+        }
     }
 
     fn question(id: &str, room_id: &str, text: &str, author: &str) -> Question {
@@ -883,6 +1052,230 @@ mod tests {
             .unwrap();
         assert_eq!(qs, 1, "tx must roll back: question survives");
         assert_eq!(ts, 0, "tx must roll back: topic never landed");
+    }
+
+    #[test]
+    fn apply_upsert_board_then_rename() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMBOARDS01");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMBOARDS01".into(),
+                    kind: WriteOpKind::UpsertBoard {
+                        board: board("b1", BoardKind::Pen, "first", 0.0),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMBOARDS01".into(),
+                    kind: WriteOpKind::RenameBoard {
+                        board_id: "b1".into(),
+                        title: "renamed".into(),
+                    },
+                },
+            ],
+        );
+        let conn = db.get().unwrap();
+        let (title, kind): (String, String) = conn
+            .query_row("SELECT title, kind FROM boards WHERE id='b1'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(title, "renamed");
+        assert_eq!(kind, "pen", "rename must not change kind");
+    }
+
+    #[test]
+    fn apply_delete_board_cascades_to_strokes_and_actions() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMBOARDD01");
+        let conn = db.get().unwrap();
+        conn.execute(
+            "INSERT INTO boards (id,room_id,kind,title,ord,created_at) \
+             VALUES ('b','ROOMBOARDD01','pen','t',0.0,0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO pen_strokes (id,board_id,color,size,points_json,ord,created_at) \
+             VALUES ('s','b','#000',1.0,'[]',0,0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO pen_actions (id,board_id,kind,target_id,ord,created_at) \
+             VALUES ('a','b','stroke_add','s',0,0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        drive_ops(
+            &db,
+            vec![WriteOp {
+                room_id: "ROOMBOARDD01".into(),
+                kind: WriteOpKind::DeleteBoard {
+                    board_id: "b".into(),
+                },
+            }],
+        );
+
+        let conn = db.get().unwrap();
+        let n_strokes: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pen_strokes", [], |r| r.get(0))
+            .unwrap();
+        let n_actions: i64 = conn
+            .query_row("SELECT COUNT(*) FROM pen_actions", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n_strokes, 0);
+        assert_eq!(n_actions, 0);
+    }
+
+    #[test]
+    fn apply_set_focused_board_writes_room_column() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMFOCUS001");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMFOCUS001".into(),
+                    kind: WriteOpKind::UpsertBoard {
+                        board: board("b1", BoardKind::Pen, "t", 0.0),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMFOCUS001".into(),
+                    kind: WriteOpKind::SetFocusedBoard {
+                        board_id: Some("b1".into()),
+                    },
+                },
+            ],
+        );
+        let conn = db.get().unwrap();
+        let focused: Option<String> = conn
+            .query_row(
+                "SELECT focused_board_id FROM rooms WHERE id='ROOMFOCUS001'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(focused.as_deref(), Some("b1"));
+    }
+
+    #[test]
+    fn apply_upsert_excalidraw_scene_inserts_then_updates() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMEXCAL001");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMEXCAL001".into(),
+                    kind: WriteOpKind::UpsertBoard {
+                        board: board("b1", BoardKind::Excalidraw, "t", 0.0),
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMEXCAL001".into(),
+                    kind: WriteOpKind::UpsertExcalidrawScene {
+                        board_id: "b1".into(),
+                        scene_version: 1,
+                        elements_json: "[]".into(),
+                        app_state_json: "{}".into(),
+                        updated_at: 100,
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMEXCAL001".into(),
+                    kind: WriteOpKind::UpsertExcalidrawScene {
+                        board_id: "b1".into(),
+                        scene_version: 2,
+                        elements_json: "[{\"x\":1}]".into(),
+                        app_state_json: "{\"k\":1}".into(),
+                        updated_at: 200,
+                    },
+                },
+            ],
+        );
+        let conn = db.get().unwrap();
+        let (v, els, st, t): (i64, String, String, i64) = conn
+            .query_row(
+                "SELECT scene_version, elements_json, app_state_json, updated_at \
+                 FROM excalidraw_scenes WHERE board_id='b1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(v, 2);
+        assert_eq!(els, "[{\"x\":1}]");
+        assert_eq!(st, "{\"k\":1}");
+        assert_eq!(t, 200);
+    }
+
+    #[test]
+    fn apply_set_kicked_preserves_existing_muted() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMMOD000001");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMMOD000001".into(),
+                    kind: WriteOpKind::SetMuted {
+                        guest_id: "g".into(),
+                        muted: true,
+                        updated_at: 100,
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMMOD000001".into(),
+                    kind: WriteOpKind::SetKicked {
+                        guest_id: "g".into(),
+                        kicked: true,
+                        updated_at: 200,
+                    },
+                },
+            ],
+        );
+        let (k, m) = db
+            .get_moderation("ROOMMOD000001", "g")
+            .unwrap()
+            .unwrap();
+        assert!(k && m, "kick must preserve existing mute");
+    }
+
+    #[test]
+    fn apply_set_muted_preserves_existing_kicked() {
+        let db = Db::open_in_memory().unwrap();
+        seed_room(&db, "ROOMMOD000002");
+        drive_ops(
+            &db,
+            vec![
+                WriteOp {
+                    room_id: "ROOMMOD000002".into(),
+                    kind: WriteOpKind::SetKicked {
+                        guest_id: "g".into(),
+                        kicked: true,
+                        updated_at: 100,
+                    },
+                },
+                WriteOp {
+                    room_id: "ROOMMOD000002".into(),
+                    kind: WriteOpKind::SetMuted {
+                        guest_id: "g".into(),
+                        muted: true,
+                        updated_at: 200,
+                    },
+                },
+            ],
+        );
+        let (k, m) = db
+            .get_moderation("ROOMMOD000002", "g")
+            .unwrap()
+            .unwrap();
+        assert!(k && m, "mute must preserve existing kick");
     }
 
     #[tokio::test]
