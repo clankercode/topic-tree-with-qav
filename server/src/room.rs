@@ -10,6 +10,7 @@
 //! shutdown.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
@@ -105,6 +106,10 @@ pub struct Room {
     pub id: String,
     pub title: String,
     pub created_at: i64,
+    /// Wall-clock ms of the last meaningful activity on this room.
+    /// Bumped on `get_or_create_hydrated`, every inbound/outbound ws
+    /// frame, and explicit `touch` calls. Read by the idle reaper.
+    last_activity_at: AtomicI64,
     inner: Mutex<RoomInner>,
     pub broadcast: broadcast::Sender<ServerMsg>,
 }
@@ -142,6 +147,7 @@ impl Room {
             id,
             title,
             created_at,
+            last_activity_at: AtomicI64::new(now_ms()),
             inner: Mutex::new(RoomInner {
                 seq: 0,
                 presence: BTreeMap::new(),
@@ -163,6 +169,24 @@ impl Room {
 
     pub fn subscribe(&self) -> broadcast::Receiver<ServerMsg> {
         self.broadcast.subscribe()
+    }
+
+    /// Update the activity timestamp. Cheap (single relaxed atomic
+    /// store). Call on every inbound ws frame and on outbound broadcast
+    /// emissions.
+    pub fn touch(&self, now_ms: i64) {
+        self.last_activity_at.store(now_ms, Ordering::Relaxed);
+    }
+
+    pub fn last_activity_at(&self) -> i64 {
+        self.last_activity_at.load(Ordering::Relaxed)
+    }
+
+    /// Number of currently connected clients across all guests. Used by
+    /// the idle reaper.
+    pub fn connected_client_count(&self) -> usize {
+        let g = self.inner.lock().expect("room inner");
+        g.presence.values().map(|p| p.client_ids.len()).sum()
     }
 
     /// Allocate the next per-room sequence number. Always non-zero on
@@ -188,6 +212,7 @@ impl Room {
         joined_at: i64,
         muted: bool,
     ) -> bool {
+        self.touch(now_ms());
         let mut g = self.inner.lock().expect("room inner");
         if let Some(p) = g.presence.get_mut(&guest_id) {
             if !p.client_ids.contains(&client_id) {
@@ -216,6 +241,7 @@ impl Room {
     /// Returns true if the guest is now fully disconnected (no remaining
     /// clients).
     pub fn remove_client(&self, guest_id: &str, client_id: &str) -> bool {
+        self.touch(now_ms());
         let mut g = self.inner.lock().expect("room inner");
         let Some(p) = g.presence.get_mut(guest_id) else {
             return false;
@@ -1070,6 +1096,42 @@ impl RoomRegistry {
     pub fn iter(&self) -> impl Iterator<Item = Arc<Room>> + '_ {
         self.rooms.iter().map(|entry| entry.value().clone())
     }
+
+    /// Remove rooms with no connected clients and no activity for at
+    /// least `idle_threshold_ms`. Returns the reaped handles so the
+    /// caller can perform any side-effects (none today) before drop.
+    ///
+    /// Each candidate is verified under the DashMap shard lock to avoid
+    /// races with concurrent `get_or_create*` first-access (see
+    /// risks.md R28).
+    pub fn reap_idle(&self, now_ms: i64, idle_threshold_ms: i64) -> Vec<Arc<Room>> {
+        // Collect candidate keys first to avoid holding DashMap iterator
+        // while mutating; remove_if is then used per candidate to
+        // re-check under the shard lock.
+        let candidates: Vec<String> = self
+            .rooms
+            .iter()
+            .filter(|e| {
+                let room = e.value();
+                room.connected_client_count() == 0
+                    && now_ms.saturating_sub(room.last_activity_at()) > idle_threshold_ms
+            })
+            .map(|e| e.key().clone())
+            .collect();
+        let mut reaped = Vec::new();
+        for id in candidates {
+            if let Some((_, room)) =
+                self.rooms
+                    .remove_if(&id, |_, room| {
+                        room.connected_client_count() == 0
+                            && now_ms.saturating_sub(room.last_activity_at()) > idle_threshold_ms
+                    })
+            {
+                reaped.push(room);
+            }
+        }
+        reaped
+    }
 }
 
 /// Read every persisted row for `room_id` inside one read transaction
@@ -1278,6 +1340,37 @@ mod tests {
             role,
             guest_id: guest.to_string(),
         }
+    }
+
+    #[test]
+    fn reap_idle_drops_truly_idle_rooms() {
+        let reg = RoomRegistry::default();
+        let now = 11 * 60 * 1000; // 11 min in ms.
+        // Room A: no clients, last activity 0 (11 min idle) → reaped.
+        let a = reg.get_or_create("a", "A", 0);
+        a.touch(0);
+        // Room B: no clients, last activity 6 min ago → kept.
+        let b = reg.get_or_create("b", "B", 0);
+        b.touch(now - 6 * 60 * 1000);
+        // Room C: one connected client, regardless of activity → kept.
+        let c = reg.get_or_create("c", "C", 0);
+        c.touch(0);
+        c.add_client("g".into(), "cli".into(), "n".into(), 0, false);
+
+        let reaped = reg.reap_idle(now, 10 * 60 * 1000);
+        let reaped_ids: Vec<String> = reaped.iter().map(|r| r.id.clone()).collect();
+        assert_eq!(reaped_ids, vec!["a".to_string()]);
+        assert!(reg.get("a").is_none());
+        assert!(reg.get("b").is_some());
+        assert!(reg.get("c").is_some());
+    }
+
+    #[test]
+    fn touch_updates_last_activity_monotonically() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let initial = r.last_activity_at();
+        r.touch(initial + 1_000);
+        assert_eq!(r.last_activity_at(), initial + 1_000);
     }
 
     #[test]

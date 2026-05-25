@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (state, writer_join) = server::AppState::new(db, metrics);
 
     let _excalidraw_reset_task = server::ws::spawn_excalidraw_scene_reset_task(state.clone());
+    let _idle_reaper_task = spawn_idle_reaper(state.clone());
 
     axum::serve(listener, server::app_with_state(state.clone()))
         .with_graceful_shutdown(shutdown_signal())
@@ -50,6 +51,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     }
     Ok(())
+}
+
+/// Spawn the idle-room reaper. Every 60 s, evict rooms that have had
+/// no connected clients and no activity for at least 10 minutes. See
+/// `.plan/2026-05-25-followup/risks.md` R21 + R28.
+fn spawn_idle_reaper(state: server::AppState) -> tokio::task::JoinHandle<()> {
+    use std::time::Duration;
+    const TICK: Duration = Duration::from_secs(60);
+    const IDLE_THRESHOLD_MS: i64 = 10 * 60 * 1000;
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(TICK);
+        interval.tick().await; // skip the immediate first tick
+        loop {
+            interval.tick().await;
+            let now = chrono_like_now_ms();
+            let reaped = state.rooms.reap_idle(now, IDLE_THRESHOLD_MS);
+            if !reaped.is_empty() {
+                tracing::info!(
+                    count = reaped.len(),
+                    "reaped idle rooms",
+                );
+            }
+        }
+    })
+}
+
+fn chrono_like_now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 async fn shutdown_signal() {
