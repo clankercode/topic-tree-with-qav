@@ -59,8 +59,8 @@ describe("App routing", () => {
 
     await waitFor(async () => {
       const rec = await getRoom("r1");
-      expect(rec?.role).toBe("admin");
       expect(rec?.adminToken).toBe("tok-xyz");
+      expect(rec?.hostGuestId).toBeTruthy();
     });
 
     await waitFor(() => {
@@ -81,5 +81,17 @@ describe("App routing", () => {
       screen.getByRole("heading", { name: /join room/i }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/your name/i)).toBeInTheDocument();
+  });
+
+  it("preview entry prompts for a display name at /r/:id/preview", () => {
+    render(
+      <MemoryRouter initialEntries={["/r/r2/preview"]}>
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+    expect(
+      screen.getByRole("heading", { name: /preview as guest/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/display name/i)).toBeInTheDocument();
   });
 });

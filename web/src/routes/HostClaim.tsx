@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getOrCreateGuestId, upsertRoom } from "../lib/idb";
+import { getOrCreateGuestId, mergeRoomHost } from "../lib/idb";
 
 interface HostClaimProps {
   adminToken: string;
@@ -22,13 +22,11 @@ export function HostClaim({ adminToken }: HostClaimProps) {
     let cancelled = false;
     const now = Date.now();
     void getOrCreateGuestId()
-      .then((guestId) =>
-        upsertRoom({
-          roomId,
+      .then((hostGuestId) =>
+        mergeRoomHost(roomId, {
           title: "Untitled room",
-          role: "admin",
           adminToken,
-          guestId,
+          hostGuestId,
           createdAt: now,
           lastJoinedAt: now,
         }),

@@ -1,12 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { getRoom } from "../lib/idb";
 import {
-  getOrCreateRoomGuestId,
-  getRoom,
-  mergeRoomGuest,
-} from "../lib/idb";
+  createPreviewGuestId,
+  savePreviewGuest,
+} from "../lib/previewGuest";
 
-export function RoomEntry() {
+export function PreviewGuestEntry() {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -16,8 +16,8 @@ export function RoomEntry() {
     if (!roomId) return;
     let alive = true;
     void getRoom(roomId).then((record) => {
-      if (alive && record?.guest?.displayName) {
-        setName(record.guest.displayName);
+      if (alive && record?.title) {
+        // title is shown in session; no saved preview name to restore
       }
     });
     return () => {
@@ -28,15 +28,12 @@ export function RoomEntry() {
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!roomId || !name.trim()) return;
-    const guestId = await getOrCreateRoomGuestId(roomId);
-    const now = Date.now();
-    await mergeRoomGuest(roomId, {
-      guestId,
+    savePreviewGuest(roomId, {
+      guestId: createPreviewGuestId(),
       displayName: name.trim(),
-      lastJoinedAt: now,
     });
     setJoined(true);
-    navigate(`/r/${roomId}/guest`, { replace: true });
+    navigate(`/r/${roomId}/preview/guest`, { replace: true });
   }
 
   return (
@@ -46,13 +43,15 @@ export function RoomEntry() {
         className="w-full max-w-sm space-y-4 rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-6"
       >
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Join room</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Preview as guest
+          </h1>
           <p className="text-sm text-[rgb(var(--muted))]">
-            Enter the display name other attendees will see.
+            Ephemeral test view — does not change your saved host access.
           </p>
         </div>
         <label className="block space-y-1">
-          <span className="text-sm font-medium">Your name</span>
+          <span className="text-sm font-medium">Display name</span>
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -64,10 +63,10 @@ export function RoomEntry() {
           type="submit"
           className="w-full rounded bg-[rgb(var(--accent))] px-4 py-2 text-white"
         >
-          Join
+          Start preview
         </button>
         {joined ? (
-          <p className="text-sm text-[rgb(var(--muted))]">Joining session…</p>
+          <p className="text-sm text-[rgb(var(--muted))]">Opening preview…</p>
         ) : null}
       </form>
     </main>

@@ -53,7 +53,7 @@ export function HostSession() {
         setRecord(null);
         return;
       }
-      if (room.role !== "admin") {
+      if (!room?.adminToken) {
         setRecord(null);
         return;
       }
@@ -65,7 +65,7 @@ export function HostSession() {
         url: wsUrl,
         hello: {
           role: "host",
-          guestId: room.guestId,
+          guestId: room.hostGuestId ?? room.guest?.guestId ?? "",
           adminToken: room.adminToken,
         },
         onOpen: () => {
@@ -101,7 +101,7 @@ export function HostSession() {
       )
         return;
       if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-      if (record?.role !== "admin") return;
+      if (!record?.adminToken) return;
 
       const orderedTopics = [...topics].sort((a, b) => a.ord - b.ord);
       const pendingTopics = orderedTopics.filter((t) => t.status === "pending");
@@ -146,7 +146,7 @@ export function HostSession() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [topics, activeTopicId, record?.role]);
+  }, [topics, activeTopicId, record?.adminToken]);
 
   if (record === undefined) {
     return (
@@ -289,7 +289,11 @@ export function HostSession() {
               <PresenceIndicator />
             </div>
           </header>
-          <AdminBanner joinUrl={joinUrl} adminUrl={adminUrl} />
+          <AdminBanner
+            joinUrl={joinUrl}
+            adminUrl={adminUrl}
+            roomId={roomId}
+          />
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="flex flex-col gap-4">
               <TopicTree />
