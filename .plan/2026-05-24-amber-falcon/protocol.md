@@ -165,7 +165,7 @@ type RoomSnapshot = {
 |---|---|
 | `Cursor` | 30 msg/s; excess dropped silently |
 | `Click` | 5 msg/s |
-| `PenStrokeAppend` | 60 msg/s |
+| `PenStrokeAppend` | 60 msg/s; each message may carry multiple `[x,y,pressure]` points batched per display frame |
 | `SubmitQuestion` | 6 msg/min |
 | `VoteQuestion` | 30 msg/min |
 | `RaiseHand` | 2 msg/min (lower → raise → lower → raise spam guard) |

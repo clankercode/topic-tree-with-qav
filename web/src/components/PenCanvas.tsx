@@ -3,6 +3,12 @@ import { getStroke } from "perfect-freehand";
 import type { PenStrokeSummary } from "../ws/types";
 import { useThemeStore } from "../store/theme";
 import { resolvePenColor } from "../lib/penInk";
+import { readPenCanvasBg } from "../lib/penCanvasTheme";
+import {
+  createPenStrokeSampler,
+  type PenPoint,
+  type PenStrokeSampler,
+} from "../lib/penStrokeSampler";
 import type { ToolMode } from "./PenToolPalette";
 
 const CANVAS_WIDTH = 4096;
@@ -49,12 +55,10 @@ interface PenCanvasProps {
     y: number,
     pressure: number,
   ) => void;
-  onStrokeAppend?: (
+  onStrokeAppendBatch?: (
     boardId: string,
     strokeId: string,
-    x: number,
-    y: number,
-    pressure: number,
+    points: PenPoint[],
   ) => void;
   onStrokeEnd?: (boardId: string, strokeId: string) => void;
   isHost?: boolean;
@@ -66,7 +70,7 @@ export function PenCanvas({
   strokes,
   inProgressStrokes,
   onStrokeBegin,
-  onStrokeAppend,
+  onStrokeAppendBatch,
   onStrokeEnd,
   isHost = false,
   boardId,
@@ -75,6 +79,7 @@ export function PenCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const currentStrokeRef = useRef<string | null>(null);
+  const samplerRef = useRef<PenStrokeSampler | null>(null);
 
   const resolvedTheme = useThemeStore((s) => s.resolvedTheme);
   const isDark = resolvedTheme === "dark";
@@ -86,7 +91,7 @@ export function PenCanvas({
     if (!ctx) return;
 
     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    ctx.fillStyle = isDark ? "#1a1a1a" : "#ffffff";
+    ctx.fillStyle = readPenCanvasBg(isDark);
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     for (const stroke of strokes) {
@@ -139,6 +144,13 @@ export function PenCanvas({
     return () => resizeObserver.disconnect();
   }, [draw]);
 
+  useEffect(() => {
+    return () => {
+      samplerRef.current?.stop();
+      samplerRef.current = null;
+    };
+  }, []);
+
   const getCanvasPoint = (
     e: React.PointerEvent<HTMLCanvasElement>,
   ): { x: number; y: number; pressure: number } => {
@@ -153,6 +165,14 @@ export function PenCanvas({
     return { x, y, pressure };
   };
 
+  const flushBatch = useCallback(
+    (strokeId: string, points: PenPoint[]) => {
+      if (points.length === 0) return;
+      onStrokeAppendBatch?.(boardId, strokeId, points);
+    },
+    [boardId, onStrokeAppendBatch],
+  );
+
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isHost || !onStrokeBegin || tool === "text") return;
     e.preventDefault();
@@ -160,20 +180,30 @@ export function PenCanvas({
     const strokeId = crypto.randomUUID();
     currentStrokeRef.current = strokeId;
     onStrokeBegin(boardId, strokeId, x, y, pressure);
-    (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+
+    samplerRef.current?.stop();
+    const sampler = createPenStrokeSampler();
+    samplerRef.current = sampler;
+    sampler.start((points) => flushBatch(strokeId, points));
+
+    if (e.currentTarget.setPointerCapture) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isHost || !onStrokeAppend || !currentStrokeRef.current) return;
+    if (!isHost || !currentStrokeRef.current || !samplerRef.current) return;
     const { x, y, pressure } = getCanvasPoint(e);
-    const strokeId = currentStrokeRef.current;
-    onStrokeAppend(boardId, strokeId, x, y, pressure);
+    samplerRef.current.pushSample([x, y, pressure]);
   };
 
   const handlePointerUp = () => {
     if (!isHost || !onStrokeEnd) return;
     if (currentStrokeRef.current) {
       const strokeId = currentStrokeRef.current;
+      const trailing = samplerRef.current?.stop() ?? [];
+      samplerRef.current = null;
+      flushBatch(strokeId, trailing);
       onStrokeEnd(boardId, strokeId);
       currentStrokeRef.current = null;
     }

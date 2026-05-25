@@ -81,21 +81,22 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
     [boardId, color, size],
   );
 
-  const handleStrokeAppend = useCallback(
+  const handleStrokeAppendBatch = useCallback(
     (
       _bid: string,
       strokeId: string,
-      x: number,
-      y: number,
-      pressure: number,
+      points: [number, number, number][],
     ) => {
+      if (points.length === 0) return;
       const key = `${boardId}:${strokeId}`;
-      const newPoint: [number, number, number] = [x, y, pressure];
       useSessionStore.setState((state) => {
         const existing = state.penInProgressStrokes.get(key);
         if (!existing) return {};
         const next = new Map(state.penInProgressStrokes);
-        next.set(key, { ...existing, points: [...existing.points, newPoint] });
+        next.set(key, {
+          ...existing,
+          points: [...existing.points, ...points],
+        });
         return { penInProgressStrokes: next };
       });
       sendWsMsg({
@@ -103,7 +104,7 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
         type: "PenStrokeAppend",
         boardId,
         strokeId,
-        points: [newPoint],
+        points,
       });
     },
     [boardId],
@@ -183,7 +184,7 @@ export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
           strokes={content.strokes}
           inProgressStrokes={inProgressStrokes}
           onStrokeBegin={handleStrokeBegin}
-          onStrokeAppend={handleStrokeAppend}
+          onStrokeAppendBatch={handleStrokeAppendBatch}
           onStrokeEnd={handleStrokeEnd}
           isHost={isHost}
           tool={tool}

@@ -21,3 +21,11 @@ if (typeof window !== "undefined" && !window.matchMedia) {
     }),
   });
 }
+
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as typeof ResizeObserver;
+}

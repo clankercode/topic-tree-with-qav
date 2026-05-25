@@ -11,6 +11,18 @@ interface Props {
   isHost: boolean;
 }
 
+function stripThemeFromAppState(appState: Record<string, unknown>) {
+  const { theme: _theme, ...rest } = appState;
+  return rest;
+}
+
+function mergeViewerTheme(
+  appState: Record<string, unknown> | undefined,
+  resolvedTheme: "light" | "dark",
+) {
+  return { ...(appState ?? {}), theme: resolvedTheme };
+}
+
 export function ExcalidrawBoard({ board, isHost }: Props) {
   const versionRef = useRef<number>(board.sceneVersion ?? 0);
   const boardIdRef = useRef<string>(board.id);
@@ -29,10 +41,26 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
     if (apiRef.current) {
       apiRef.current.updateScene({
         elements: board.elements,
-        appState: board.appState,
+        appState: mergeViewerTheme(
+          board.appState as Record<string, unknown> | undefined,
+          resolvedTheme,
+        ),
       });
     }
-  }, [board.id, board.sceneVersion, board.elements, board.appState]);
+  }, [
+    board.id,
+    board.sceneVersion,
+    board.elements,
+    board.appState,
+    resolvedTheme,
+  ]);
+
+  useEffect(() => {
+    if (!apiRef.current) return;
+    apiRef.current.updateScene({
+      appState: { theme: resolvedTheme },
+    });
+  }, [resolvedTheme]);
 
   const handleChange = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -48,7 +76,7 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
           boardId: board.id,
           sceneVersion: newVersion,
           elements: elements as unknown[],
-          appState,
+          appState: stripThemeFromAppState(appState as Record<string, unknown>),
         });
       }, 150);
     },
@@ -86,10 +114,11 @@ export function ExcalidrawBoard({ board, isHost }: Props) {
           apiRef.current = api;
         }}
         initialData={{
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          elements: board.elements as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          appState: { ...(board.appState as any), theme: resolvedTheme },
+          elements: board.elements as never,
+          appState: mergeViewerTheme(
+            board.appState as Record<string, unknown> | undefined,
+            resolvedTheme,
+          ) as Record<string, unknown>,
         }}
       />
       <CursorLayer
