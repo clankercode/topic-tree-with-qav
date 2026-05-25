@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useSessionStore, type CursorPosition } from "../store";
 
+const EMPTY_CURSORS: Record<string, CursorPosition> = Object.freeze({}) as Record<string, CursorPosition>;
+
 interface CursorProps {
   cursor: CursorPosition;
   targetX: number;
@@ -51,7 +53,7 @@ export function CursorLayer({
   onMouseMove,
   onMouseClick,
 }: CursorLayerProps) {
-  const cursors = useSessionStore((s) => s.cursors[boardId] ?? {});
+  const cursors = useSessionStore((s) => s.cursors[boardId] ?? EMPTY_CURSORS);
   const me = useSessionStore((s) => s.me);
   const tick = useSessionStore((s) => s.tick);
 
