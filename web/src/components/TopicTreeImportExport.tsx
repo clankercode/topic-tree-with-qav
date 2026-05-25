@@ -12,11 +12,11 @@
 //     single `ImportTopicTree` ws frame. Server validates again +
 //     atomically creates every node.
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Download, Upload, ClipboardCopy } from "lucide-react";
 import { useSessionStore } from "../store";
 import { useToastStore } from "../store/toast";
-import { sendWsMsg } from "../ws/manager";
+import { registerPendingSubmit, sendWsMsg } from "../ws/manager";
 import {
   buildExportPayload,
   parseImportPayload,
@@ -47,10 +47,20 @@ export function TopicTreeImportExport() {
   const addToast = useToastStore((s) => s.addToast);
   const [importOpen, setImportOpen] = useState(false);
   const [pasted, setPasted] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pendingImportCleanupRef = useRef<(() => void) | null>(null);
   const titleId = useId();
   useModalFocus(importOpen, dialogRef, () => setImportOpen(false), textareaRef);
+
+  useEffect(
+    () => () => {
+      pendingImportCleanupRef.current?.();
+    },
+    [],
+  );
 
   if (me?.role !== "host") return null;
 
@@ -89,18 +99,35 @@ export function TopicTreeImportExport() {
     const result = parseImportPayload(pasted);
     if (!result.ok) {
       const msg = describeError(result.error);
+      setImportError(msg);
       addToast(`Import failed: ${msg}`, "error");
       return;
     }
+    const refId = crypto.randomUUID();
+    const rootCount = result.topics.length;
+    pendingImportCleanupRef.current?.();
+    setIsImporting(true);
+    setImportError(null);
+    pendingImportCleanupRef.current = registerPendingSubmit(refId, (outcome) => {
+      setIsImporting(false);
+      pendingImportCleanupRef.current = null;
+      if (outcome.kind === "ack") {
+        setImportOpen(false);
+        setPasted("");
+        setImportError(null);
+        addToast(`Imported ${rootCount} root topic(s).`, "success");
+        return;
+      }
+      setImportError(outcome.message);
+      addToast(outcome.message, "error");
+    });
     sendWsMsg({
       v: 1,
       type: "ImportTopicTree",
+      id: refId,
       topics: result.topics,
       parentTopicId: null,
     });
-    addToast(`Importing ${result.topics.length} root topic(s)…`, "info");
-    setImportOpen(false);
-    setPasted("");
   }
 
   return (
@@ -121,7 +148,10 @@ export function TopicTreeImportExport() {
         </button>
         <button
           type="button"
-          onClick={() => setImportOpen(true)}
+          onClick={() => {
+            setImportError(null);
+            setImportOpen(true);
+          }}
           className="flex items-center gap-1 rounded border border-[rgb(var(--border))] px-2 py-1 text-xs text-[rgb(var(--muted))] hover:border-[rgb(var(--accent))] hover:text-[rgb(var(--accent))]"
           title="Import a topic tree from JSON"
           aria-label="Import topic tree"
@@ -165,12 +195,20 @@ export function TopicTreeImportExport() {
             <textarea
               ref={textareaRef}
               value={pasted}
-              onChange={(e) => setPasted(e.target.value)}
+              onChange={(e) => {
+                setPasted(e.target.value);
+                setImportError(null);
+              }}
               placeholder={'{"version":1,"topics":[…]}'}
               rows={12}
               spellCheck={false}
               className="w-full resize-y rounded border border-[rgb(var(--border))] bg-[rgb(var(--background))] px-2 py-1 font-mono text-xs"
             />
+            {importError && (
+              <p className="text-xs text-red-600" role="alert">
+                {importError}
+              </p>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -182,10 +220,10 @@ export function TopicTreeImportExport() {
               <button
                 type="button"
                 onClick={handleImportSubmit}
-                disabled={pasted.trim().length === 0}
+                disabled={pasted.trim().length === 0 || isImporting}
                 className="rounded bg-[rgb(var(--primary))] px-3 py-1 text-xs text-[rgb(var(--primary-fg))] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Import
+                {isImporting ? "Importing..." : "Import"}
               </button>
             </div>
           </div>
