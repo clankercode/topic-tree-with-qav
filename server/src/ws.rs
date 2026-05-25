@@ -33,6 +33,7 @@ use uuid::Uuid;
 
 use crate::api::now_ms;
 use crate::auth::{is_valid_display_name, is_valid_guest_id, verify_admin_token};
+use crate::db::{WriteOp, WriteOpKind};
 use crate::metrics::SharedMetrics;
 use crate::proto::{
     error_codes, ClientMsg, Question, Role, ServerMsg, Topic, TopicStatus, You, PROTOCOL_VERSION,
@@ -40,6 +41,17 @@ use crate::proto::{
 use crate::rate_limit::Quota;
 use crate::room::Room;
 use crate::state::{global_rate_limiter, AppState};
+
+/// Enqueue a WriteOp on the single-writer task. Errors (channel closed
+/// at shutdown) are silenced — the in-memory broadcast has already
+/// occurred and the next process boot will hydrate from the prior
+/// committed state.
+fn enqueue_write(state: &AppState, room: &Arc<Room>, kind: WriteOpKind) {
+    let _ = state.writer_tx.send(WriteOp {
+        room_id: room.id.clone(),
+        kind,
+    });
+}
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(25);
 const HELLO_TIMEOUT: Duration = Duration::from_secs(15);
@@ -753,8 +765,9 @@ async fn handle_text(
                 status: TopicStatus::Pending,
                 created_at: now,
             };
-            room.add_topic(topic);
+            room.add_topic(topic.clone());
             broadcast_topic_tree(room);
+            enqueue_write(state, room, WriteOpKind::UpsertTopic { topic });
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -794,7 +807,7 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
-            if !room.rename_topic(&topic_id, title) {
+            if !room.rename_topic(&topic_id, title.clone()) {
                 let _ = send(
                     sink,
                     &error_frame(
@@ -808,6 +821,14 @@ async fn handle_text(
                 return Ok(());
             }
             broadcast_topic_tree(room);
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::RenameTopic {
+                    topic_id: topic_id.clone(),
+                    title,
+                },
+            );
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -843,7 +864,7 @@ async fn handle_text(
             } else {
                 0.0
             };
-            if !room.move_topic(&topic_id, new_parent_id, ord) {
+            if !room.move_topic(&topic_id, new_parent_id.clone(), ord) {
                 let _ = send(
                     sink,
                     &error_frame(
@@ -857,6 +878,15 @@ async fn handle_text(
                 return Ok(());
             }
             broadcast_topic_tree(room);
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::MoveTopic {
+                    topic_id: topic_id.clone(),
+                    parent_id: new_parent_id,
+                    ord,
+                },
+            );
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -877,7 +907,15 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
-            room.delete_topic(&topic_id);
+            if room.delete_topic(&topic_id) {
+                enqueue_write(
+                    state,
+                    room,
+                    WriteOpKind::DeleteTopic {
+                        topic_id: topic_id.clone(),
+                    },
+                );
+            }
             broadcast_topic_tree(room);
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
@@ -899,8 +937,35 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
+            // Capture the prior active id before the in-memory mutation
+            // so we can mirror set_active_topic's done-marking onto the
+            // persisted topic row.
+            let prev_active = room.active_topic_id();
             room.set_active_topic(topic_id.clone());
             broadcast_topic_tree(room);
+            if let Some(prev) = prev_active.as_deref() {
+                let should_mark_done = match &topic_id {
+                    Some(new) => prev != new.as_str(),
+                    None => true,
+                };
+                if should_mark_done {
+                    enqueue_write(
+                        state,
+                        room,
+                        WriteOpKind::SetTopicStatus {
+                            topic_id: prev.to_string(),
+                            status: TopicStatus::Done,
+                        },
+                    );
+                }
+            }
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::SetActiveTopic {
+                    topic_id: topic_id.clone(),
+                },
+            );
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -937,6 +1002,18 @@ async fn handle_text(
                 return Ok(());
             }
             broadcast_topic_tree(room);
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::SetTopicStatus {
+                    topic_id: topic_id.clone(),
+                    status: if done {
+                        TopicStatus::Done
+                    } else {
+                        TopicStatus::Pending
+                    },
+                },
+            );
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,

@@ -228,3 +228,99 @@ pub fn host_hello(guest_id: &str, display_name: &str, admin_token: &str) -> serd
         "adminToken": admin_token,
     })
 }
+
+// ─────────────── Test-only DB readers ───────────────
+//
+// Per `.plan/2026-05-25-followup/testing.md` §1, integration tests
+// assert against the persisted rows by reading the DB directly. These
+// helpers wrap one query each so the tests stay readable.
+
+pub fn read_topics_for_test(
+    db: &server::Db,
+    room_id: &str,
+) -> Vec<(String, Option<String>, String, f64, String)> {
+    let conn = db.get().expect("checkout");
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, parent_id, title, ord, status FROM topics \
+             WHERE room_id = ?1 ORDER BY ord",
+        )
+        .expect("prepare");
+    stmt.query_map([room_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, Option<String>>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, f64>(3)?,
+            r.get::<_, String>(4)?,
+        ))
+    })
+    .expect("query")
+    .collect::<Result<Vec<_>, _>>()
+    .expect("collect")
+}
+
+pub fn read_questions_for_test(
+    db: &server::Db,
+    room_id: &str,
+) -> Vec<(String, String, String, bool)> {
+    let conn = db.get().expect("checkout");
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, author_guest_id, text, answered FROM questions \
+             WHERE room_id = ?1 ORDER BY created_at",
+        )
+        .expect("prepare");
+    stmt.query_map([room_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, i32>(3)? != 0,
+        ))
+    })
+    .expect("query")
+    .collect::<Result<Vec<_>, _>>()
+    .expect("collect")
+}
+
+pub fn read_boards_for_test(
+    db: &server::Db,
+    room_id: &str,
+) -> Vec<(String, String, String, f64)> {
+    let conn = db.get().expect("checkout");
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, kind, title, ord FROM boards WHERE room_id = ?1 ORDER BY ord",
+        )
+        .expect("prepare");
+    stmt.query_map([room_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, f64>(3)?,
+        ))
+    })
+    .expect("query")
+    .collect::<Result<Vec<_>, _>>()
+    .expect("collect")
+}
+
+/// Poll a closure until it returns true, or panic after `max_wait`.
+/// Useful for waiting on the async writer task to commit a batch.
+pub async fn await_until<F>(label: &str, max_wait: std::time::Duration, mut check: F)
+where
+    F: FnMut() -> bool,
+{
+    let deadline = tokio::time::Instant::now() + max_wait;
+    loop {
+        if check() {
+            return;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!("await_until('{label}') timed out after {max_wait:?}");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
