@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { listRooms, roomHasGuest, roomHasHost, type RoomRecord } from "../lib/idb";
+import {
+  listRooms,
+  roomHasGuest,
+  roomHasHost,
+  type RoomRecord,
+} from "../lib/idb";
 
 export function RoomsDashboard() {
   const [rooms, setRooms] = useState<RoomRecord[] | null>(null);

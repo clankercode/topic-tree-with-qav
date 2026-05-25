@@ -1,8 +1,14 @@
 import { useSessionStore } from "../store";
 import { useFollowHostStore } from "../store/followHost";
 import { useToastStore } from "../store/toast";
-import { resolvePendingSubmit } from "./manager";
+import { resolvePendingSubmit, stopWsClient } from "./manager";
 import type { ServerMsg } from "./types";
+
+const FATAL_ERROR_CODES = new Set([
+  "room_not_found",
+  "unauthorized",
+  "protocol_violation",
+]);
 
 export function applyServerMessage(msg: ServerMsg): void {
   const store = useSessionStore.getState();
@@ -193,6 +199,16 @@ export function applyServerMessage(msg: ServerMsg): void {
         toastStore.addToast("Too many requests. Please slow down.", "error");
       } else if (m.code === "unauthorized" && m.message.includes("removed")) {
         store.setKicked();
+      } else if (m.code === "room_not_found") {
+        store.setSessionError("room_not_found");
+        toastStore.addToast("Room not found.", "error");
+        stopWsClient();
+      } else if (m.code === "unauthorized") {
+        store.setSessionError("unauthorized");
+        toastStore.addToast("Access denied.", "error");
+        stopWsClient();
+      } else if (FATAL_ERROR_CODES.has(m.code)) {
+        stopWsClient();
       }
       if (m.refId) {
         resolvePendingSubmit(m.refId, {

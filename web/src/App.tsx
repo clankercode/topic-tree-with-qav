@@ -1,9 +1,10 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { ToastContainer } from "./components/ToastContainer";
 import { About } from "./routes/About";
 import { GuestSession } from "./routes/GuestSession";
 import { Landing } from "./routes/Landing";
+import { NotFound } from "./routes/NotFound";
 import { PreviewGuestEntry } from "./routes/PreviewGuestEntry";
 import { RoomDispatch } from "./routes/RoomDispatch";
 import { RoomEntry } from "./routes/RoomEntry";
@@ -19,6 +20,8 @@ export function AppRoutes() {
       <Route path="/" element={<Landing />} />
       <Route path="/about" element={<About />} />
       <Route path="/rooms" element={<RoomsDashboard />} />
+      <Route path="/r" element={<Navigate to="/" replace />} />
+      <Route path="/r/" element={<Navigate to="/" replace />} />
       <Route path="/r/:roomId" element={<RoomDispatch />} />
       <Route path="/r/:roomId/join" element={<RoomEntry />} />
       <Route path="/r/:roomId/host" element={<HostSession />} />
@@ -28,6 +31,7 @@ export function AppRoutes() {
         path="/r/:roomId/preview/guest"
         element={<GuestSession preview />}
       />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }

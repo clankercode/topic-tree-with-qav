@@ -60,7 +60,9 @@ describe("TopicTreeImportExport", () => {
       "textbox",
     ) as HTMLTextAreaElement;
     expect(openTextarea.value).toBe(pastedJson);
-    expect(within(openDialog).getByText("imported tree is too deep")).toBeDefined();
+    expect(
+      within(openDialog).getByText("imported tree is too deep"),
+    ).toBeDefined();
     expect(useToastStore.getState().toasts.at(-1)?.message).toContain(
       "imported tree is too deep",
     );

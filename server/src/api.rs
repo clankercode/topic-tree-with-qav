@@ -7,20 +7,23 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use tokio::task;
 
-use crate::auth::{hash_admin_token, new_admin_token, new_room_id};
+use crate::auth::{hash_admin_token, is_valid_room_id, new_admin_token, new_room_id};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/api/rooms", post(create_room))
+    Router::new()
+        .route("/api/rooms", post(create_room))
+        .route("/api/rooms/:room_id", get(get_room))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -38,6 +41,13 @@ pub struct CreateRoomResp {
     pub join_url: String,
     pub title: String,
     pub created_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetRoomResp {
+    pub room_id: String,
+    pub title: String,
 }
 
 const DEFAULT_TITLE: &str = "Untitled";
@@ -96,13 +106,50 @@ async fn create_room(State(state): State<AppState>, body: Option<Json<CreateRoom
     (StatusCode::CREATED, Json(resp)).into_response()
 }
 
+async fn get_room(State(state): State<AppState>, Path(room_id): Path<String>) -> Response {
+    if !is_valid_room_id(&room_id) {
+        return not_found("invalid room id");
+    }
+
+    let db = state.db.clone();
+    let id = room_id.clone();
+    let row = task::spawn_blocking(move || -> Result<Option<(String, String)>, String> {
+        let conn = db.get().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT id, title FROM rooms WHERE id = ?1",
+            rusqlite::params![id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    })
+    .await;
+
+    match row {
+        Ok(Ok(Some((id, title)))) => {
+            let resp = GetRoomResp { room_id: id, title };
+            (StatusCode::OK, Json(resp)).into_response()
+        }
+        Ok(Ok(None)) => not_found("room not found"),
+        Ok(Err(_)) => server_error("db lookup failed"),
+        Err(_) => server_error("db lookup join failed"),
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct ErrorResp {
     error: String,
 }
 
+fn not_found(msg: &str) -> Response {
+    let body = ErrorResp {
+        error: msg.to_string(),
+    };
+    (StatusCode::NOT_FOUND, Json(body)).into_response()
+}
+
 fn server_error(msg: &str) -> Response {
-    tracing::error!(error = %msg, "create_room failed");
+    tracing::error!(error = %msg, "api request failed");
     let body = ErrorResp {
         error: format!("internal error: {}", msg),
     };

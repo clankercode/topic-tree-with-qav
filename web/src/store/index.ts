@@ -68,6 +68,7 @@ export interface SessionState {
   kicked: boolean;
   cursors: Record<string, Record<string, CursorPosition>>;
   connectionStatus: "connecting" | "connected" | "disconnected";
+  sessionError: SessionError;
   applyWelcome(snapshot: RoomSnapshot, seq: bigint): void;
   applyPresence(guests: Guest[], seq: bigint): void;
   applyTopicTree(
@@ -139,6 +140,8 @@ export interface SessionState {
   setConnectionStatus(
     status: "connecting" | "connected" | "disconnected",
   ): void;
+  setSessionError(error: SessionError): void;
+  clearSessionError(): void;
   optimisticAddTopic(
     tempId: string,
     parentId: string | null,
@@ -155,6 +158,12 @@ export interface SessionState {
   clearPendingOp(tempId: string): void;
   clearPendingOpByTopic(topicId: string): void;
 }
+
+export type SessionError =
+  | null
+  | "room_not_found"
+  | "invalid_room"
+  | "unauthorized";
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   room: null,
@@ -174,6 +183,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   kicked: false,
   cursors: {},
   connectionStatus: "connecting",
+  sessionError: null,
   applyWelcome(snapshot, seq) {
     const boards = snapshot.boards as FatBoard[];
     const penBoards = new Map<string, PenBoardContent>();
@@ -201,6 +211,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       hands: snapshot.hands as RaisedHand[],
       lastSeq: seq,
       pendingOps: new Map(),
+      connectionStatus: "connected",
+      sessionError: null,
     });
   },
   applyPresence(guests, seq) {
@@ -520,6 +532,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       kicked: false,
       cursors: {},
       connectionStatus: "connecting",
+      sessionError: null,
     });
   },
   setKicked() {
@@ -527,6 +540,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
   setConnectionStatus(status) {
     set({ connectionStatus: status });
+  },
+  setSessionError(error) {
+    set({ sessionError: error, connectionStatus: "disconnected" });
+  },
+  clearSessionError() {
+    set({ sessionError: null });
   },
   optimisticAddTopic(tempId, parentId, title, afterId) {
     set((state) => {

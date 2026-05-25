@@ -4,10 +4,11 @@ import { ConnectionBanner } from "../components/ConnectionBanner";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { RaiseHandButton } from "../components/RaiseHandButton";
 import { RoomSessionTabs } from "../components/RoomSessionTabs";
+import { SessionErrorView } from "../components/SessionErrorView";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { getRoom } from "../lib/idb";
 import { getPreviewGuest } from "../lib/previewGuest";
-import { setWsClient } from "../ws/manager";
+import { setWsClient, stopWsClient } from "../ws/manager";
 import { WsClient } from "../ws/client";
 import type { SortMode } from "../components/SortToggle";
 import { useSessionStore } from "../store";
@@ -30,6 +31,8 @@ export function GuestSession({ preview = false }: GuestSessionProps) {
   );
   const [sortMode, setSortMode] = useState<SortMode>("chronological");
   const kicked = useSessionStore((s) => s.kicked);
+  const sessionError = useSessionStore((s) => s.sessionError);
+  const clearSessionError = useSessionStore((s) => s.clearSessionError);
   const setConnectionStatus = useSessionStore((s) => s.setConnectionStatus);
 
   useEffect(() => {
@@ -74,6 +77,7 @@ export function GuestSession({ preview = false }: GuestSessionProps) {
       if (!alive || !session) return;
       setView(session);
 
+      clearSessionError();
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws?room=${roomId}`;
       client = new WsClient({
@@ -82,10 +86,6 @@ export function GuestSession({ preview = false }: GuestSessionProps) {
           role: "guest",
           guestId: session.guestId,
           displayName: session.displayName,
-        },
-        onOpen: () => {
-          console.log("guest ws connected");
-          setConnectionStatus("connected");
         },
         onClose: () => {
           console.log("guest ws disconnected");
@@ -96,8 +96,8 @@ export function GuestSession({ preview = false }: GuestSessionProps) {
           setConnectionStatus("disconnected");
         },
       });
-      client.start();
       setConnectionStatus("connecting");
+      client.start();
       setWsClient(client);
     }
 
@@ -105,10 +105,9 @@ export function GuestSession({ preview = false }: GuestSessionProps) {
 
     return () => {
       alive = false;
-      setWsClient(null);
-      client?.stop();
+      stopWsClient();
     };
-  }, [roomId, kicked, preview, setConnectionStatus]);
+  }, [roomId, kicked, preview, setConnectionStatus, clearSessionError]);
 
   if (view === undefined) {
     return (
@@ -147,6 +146,10 @@ export function GuestSession({ preview = false }: GuestSessionProps) {
         </div>
       </main>
     );
+  }
+
+  if (sessionError) {
+    return <SessionErrorView error={sessionError} roomId={roomId} />;
   }
 
   return (

@@ -1,10 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getRoom } from "../lib/idb";
-import {
-  createPreviewGuestId,
-  savePreviewGuest,
-} from "../lib/previewGuest";
+import { createPreviewGuestId, savePreviewGuest } from "../lib/previewGuest";
 
 export function PreviewGuestEntry() {
   const { roomId } = useParams();

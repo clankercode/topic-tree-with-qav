@@ -5,7 +5,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{host_hello, TestApp};
+use common::{guest_hello, host_hello, TestApp};
 
 #[tokio::test]
 async fn create_room_returns_admin_token_and_room_id() {
@@ -55,4 +55,35 @@ async fn hello_with_invalid_admin_token_returns_error() {
         matches!(code, "unauthorized" | "auth_failed" | "forbidden"),
         "expected an auth error code, got code={code}; err={err}"
     );
+}
+
+#[tokio::test]
+async fn hello_on_missing_room_returns_room_not_found() {
+    let app = TestApp::spawn().await;
+    let missing = "ABCDEFGH2JKL";
+
+    let mut ws = app.connect_ws(missing).await;
+    ws.send_json(&guest_hello("guest-1", "Alice")).await;
+
+    let err = ws
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Error")
+        .await;
+    assert_eq!(err["code"].as_str(), Some("room_not_found"));
+}
+
+#[tokio::test]
+async fn get_room_returns_404_for_missing_room() {
+    let app = TestApp::spawn().await;
+    let resp = app.get_room("ABCDEFGH2JKL").await;
+    assert_eq!(resp.status, axum::http::StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn get_room_returns_title_for_existing_room() {
+    let app = TestApp::spawn().await;
+    let room = app.create_room(Some("Plenary")).await;
+    let resp = app.get_room(&room.room_id).await;
+    assert_eq!(resp.status, axum::http::StatusCode::OK);
+    assert_eq!(resp.body["roomId"].as_str(), Some(room.room_id.as_str()));
+    assert_eq!(resp.body["title"].as_str(), Some("Plenary"));
 }

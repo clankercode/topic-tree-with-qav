@@ -108,19 +108,22 @@ export function TopicTreeImportExport() {
     pendingImportCleanupRef.current?.();
     setIsImporting(true);
     setImportError(null);
-    pendingImportCleanupRef.current = registerPendingSubmit(refId, (outcome) => {
-      setIsImporting(false);
-      pendingImportCleanupRef.current = null;
-      if (outcome.kind === "ack") {
-        setImportOpen(false);
-        setPasted("");
-        setImportError(null);
-        addToast(`Imported ${rootCount} root topic(s).`, "success");
-        return;
-      }
-      setImportError(outcome.message);
-      addToast(outcome.message, "error");
-    });
+    pendingImportCleanupRef.current = registerPendingSubmit(
+      refId,
+      (outcome) => {
+        setIsImporting(false);
+        pendingImportCleanupRef.current = null;
+        if (outcome.kind === "ack") {
+          setImportOpen(false);
+          setPasted("");
+          setImportError(null);
+          addToast(`Imported ${rootCount} root topic(s).`, "success");
+          return;
+        }
+        setImportError(outcome.message);
+        addToast(outcome.message, "error");
+      },
+    );
     sendWsMsg({
       v: 1,
       type: "ImportTopicTree",
