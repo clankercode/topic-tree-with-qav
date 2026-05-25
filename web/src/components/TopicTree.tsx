@@ -12,12 +12,32 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useSessionStore } from "../store";
 import { sendWsMsg } from "../ws/manager";
 import { TopicNode } from "./TopicNode";
 import { Plus } from "lucide-react";
 import { AddTopicModal } from "./AddTopicModal";
+import type { Topic } from "../ws/types";
+import { TopicChildrenProvider, type ChildrenIndex } from "./TopicChildrenContext";
+
+const ROOT_KEY = "__root__";
+
+/// Group topics by `parentId`. Topics whose `parentId` points at a
+/// missing topic are folded under the root so they remain visible (a
+/// crash-resilient fallback for inconsistent snapshots).
+function buildChildrenIndex(topics: Topic[]): ChildrenIndex {
+  const known = new Set(topics.map((t) => t.id));
+  const map = new Map<string, Topic[]>();
+  for (const t of topics) {
+    const key = t.parentId == null || !known.has(t.parentId) ? ROOT_KEY : t.parentId;
+    const existing = map.get(key);
+    if (existing) existing.push(t);
+    else map.set(key, [t]);
+  }
+  for (const list of map.values()) list.sort((a, b) => a.ord - b.ord);
+  return { map, rootKey: ROOT_KEY };
+}
 
 export function TopicTree() {
   const topics = useSessionStore((s) => s.topics);
@@ -36,9 +56,8 @@ export function TopicTree() {
     }),
   );
 
-  const rootTopics = topics
-    .filter((t) => t.parentId === null)
-    .sort((a, b) => a.ord - b.ord);
+  const childrenIndex = useMemo(() => buildChildrenIndex(topics), [topics]);
+  const rootTopics = childrenIndex.map.get(ROOT_KEY) ?? [];
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -99,29 +118,31 @@ export function TopicTree() {
             : "Waiting for host to add topics."}
         </p>
       ) : (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={rootTopics.map((t) => t.id)}
-            strategy={verticalListSortingStrategy}
+        <TopicChildrenProvider value={childrenIndex}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
           >
-            <ul className="space-y-2">
-              {rootTopics.map((topic) => (
-                <TopicNode
-                  key={topic.id}
-                  topic={topic}
-                  isActive={activeTopicId === topic.id}
-                  isEditing={editingId === topic.id}
-                  onStartEdit={() => setEditingId(topic.id)}
-                  onEndEdit={() => setEditingId(null)}
-                />
-              ))}
-            </ul>
-          </SortableContext>
-        </DndContext>
+            <SortableContext
+              items={rootTopics.map((t) => t.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <ul className="space-y-2">
+                {rootTopics.map((topic) => (
+                  <TopicNode
+                    key={topic.id}
+                    topic={topic}
+                    isActive={activeTopicId === topic.id}
+                    isEditing={editingId === topic.id}
+                    onStartEdit={() => setEditingId(topic.id)}
+                    onEndEdit={() => setEditingId(null)}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
+        </TopicChildrenProvider>
       )}
       <AddTopicModal
         open={showAddModal}
