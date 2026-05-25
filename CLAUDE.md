@@ -127,3 +127,4 @@ See `.plan/2026-05-24-amber-falcon/agents-workflow.md` for prompt skeletons and 
 - `justfile` is the index. Add recipes liberally; >5-line bodies go in `scripts/`.
 - Limit builds/tests to 2 threads where parallelism is configurable (`cargo build -j 2`, `cargo test -j 2`, `pnpm -C web test --threads 2`). Recipes already pass these flags.
 - `attn` CLI is available to notify the user — use sparingly, only on blockers or when finished after a long-running task. Spoken-language friendly: no symbols, no jargon.
+- Create git worktrees under `./.worktrees/` (already gitignored). Keeps the repo root clean and isolates parallel branches in a predictable location.
