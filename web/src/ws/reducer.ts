@@ -1,6 +1,7 @@
 import { useSessionStore } from "../store";
 import { useFollowHostStore } from "../store/followHost";
 import { useToastStore } from "../store/toast";
+import { resolvePendingSubmit } from "./manager";
 import type { ServerMsg } from "./types";
 
 export function applyServerMessage(msg: ServerMsg): void {
@@ -191,6 +192,19 @@ export function applyServerMessage(msg: ServerMsg): void {
       } else if (m.code === "unauthorized" && m.message.includes("removed")) {
         store.setKicked();
       }
+      if (m.refId) {
+        resolvePendingSubmit(m.refId, {
+          kind: "error",
+          code: m.code,
+          message: m.message,
+        });
+      }
+      store.setLastSeq(msg.seq);
+      return;
+    }
+    case "Ack": {
+      const m = msg as Extract<ServerMsg, { type: "Ack" }>;
+      resolvePendingSubmit(m.refId, { kind: "ack" });
       store.setLastSeq(msg.seq);
       return;
     }

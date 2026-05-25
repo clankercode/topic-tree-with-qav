@@ -2,6 +2,12 @@ import { useId, useRef, useState } from "react";
 import { Hand, X } from "lucide-react";
 import { useSessionStore } from "../store";
 import { sendWsMsg } from "../ws/manager";
+import {
+  countTopicWords,
+  isValidRaiseHandTopic,
+  MAX_RAISE_HAND_TOPIC_LEN,
+  MAX_RAISE_HAND_TOPIC_WORDS,
+} from "../lib/validation";
 import { useModalFocus } from "./useModalFocus";
 
 export function RaiseHandButton() {
@@ -19,9 +25,8 @@ export function RaiseHandButton() {
   const myHand = hands.find((h) => h.guestId === me.guestId);
   const isRaised = !!myHand;
 
-  const wordCount = topic.trim().split(/\s+/).filter(Boolean).length;
-  const isValid =
-    topic.trim().length > 0 && topic.length <= 80 && wordCount <= 10;
+  const wordCount = countTopicWords(topic);
+  const isValid = isValidRaiseHandTopic(topic);
 
   function handleOpen() {
     setTopic(myHand?.topic ?? "");
@@ -102,14 +107,22 @@ export function RaiseHandButton() {
                 onChange={(e) => setTopic(e.target.value)}
                 placeholder="e.g. Can you explain closures?"
                 className="w-full px-3 py-2 rounded border border-[rgb(var(--border))] bg-[rgb(var(--bg))] text-sm"
-                maxLength={80}
+                maxLength={MAX_RAISE_HAND_TOPIC_LEN}
               />
               <div className="flex justify-between text-xs text-[rgb(var(--muted))]">
-                <span className={wordCount > 10 ? "text-red-500" : ""}>
-                  {wordCount}/10 words
+                <span
+                  className={
+                    wordCount > MAX_RAISE_HAND_TOPIC_WORDS ? "text-red-500" : ""
+                  }
+                >
+                  {wordCount}/{MAX_RAISE_HAND_TOPIC_WORDS} words
                 </span>
-                <span className={topic.length > 80 ? "text-red-500" : ""}>
-                  {topic.length}/80 chars
+                <span
+                  className={
+                    topic.length > MAX_RAISE_HAND_TOPIC_LEN ? "text-red-500" : ""
+                  }
+                >
+                  {topic.length}/{MAX_RAISE_HAND_TOPIC_LEN} chars
                 </span>
               </div>
             </div>

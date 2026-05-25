@@ -10,6 +10,7 @@ pub mod proto;
 pub mod rate_limit;
 pub mod room;
 pub mod state;
+pub mod validation;
 pub mod writer;
 pub mod ws;
 

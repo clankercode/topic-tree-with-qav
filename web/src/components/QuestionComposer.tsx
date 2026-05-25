@@ -1,32 +1,77 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Send } from "lucide-react";
-import { sendWsMsg } from "../ws/manager";
+import { registerPendingSubmit, sendWsMsg } from "../ws/manager";
 import { useSessionStore } from "../store";
+import { useToastStore } from "../store/toast";
 
 interface QuestionComposerProps {
   onSubmitted?: () => void;
 }
 
+/// G.5: preserve draft text until the matching `Ack` lands. On Error
+/// with code `rate_limit` or `muted`, restore the input and surface
+/// a toast so the user can edit + retry instead of retyping.
 export function QuestionComposer({ onSubmitted }: QuestionComposerProps) {
   const [text, setText] = useState("");
   const [anonymous, setAnonymous] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const me = useSessionStore((s) => s.me);
+  const addToast = useToastStore((s) => s.addToast);
+  // Cleanup callbacks for in-flight submissions: registers run during
+  // submit; if the component unmounts before the ack/error, we let
+  // resolution still happen (no DOM access), so cleanup is best-effort.
+  const cleanupRef = useRef<(() => void) | null>(null);
+  useEffect(
+    () => () => {
+      cleanupRef.current?.();
+    },
+    [],
+  );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!text.trim() || isSubmitting || !me) return;
+    const trimmed = text.trim();
+    if (!trimmed || isSubmitting || !me) return;
+
+    const refId = crypto.randomUUID();
+    const submittedText = trimmed;
+    const submittedAnonymous = anonymous;
 
     setIsSubmitting(true);
+    // Clear immediately so the user sees a responsive UI. If the
+    // server rejects, the rollback handler below restores both
+    // fields verbatim.
+    setText("");
+
+    cleanupRef.current?.();
+    cleanupRef.current = registerPendingSubmit(refId, (outcome) => {
+      setIsSubmitting(false);
+      cleanupRef.current = null;
+      if (outcome.kind === "ack") {
+        onSubmitted?.();
+        return;
+      }
+      if (outcome.code === "rate_limit" || outcome.code === "muted") {
+        setText(submittedText);
+        setAnonymous(submittedAnonymous);
+        // The reducer already toasts for rate_limit / muted, so we
+        // just need to make sure the user knows their draft is back.
+      } else {
+        // Unknown error path: surface a generic toast and keep the
+        // draft so nothing is lost.
+        setText(submittedText);
+        setAnonymous(submittedAnonymous);
+        addToast(`Could not submit question: ${outcome.message}`, "error");
+      }
+    });
+
     sendWsMsg({
       v: 1,
       type: "SubmitQuestion",
-      text: text.trim(),
-      anonymous,
+      id: refId,
+      text: submittedText,
+      anonymous: submittedAnonymous,
     });
-    setText("");
-    setIsSubmitting(false);
-    onSubmitted?.();
   }
 
   return (

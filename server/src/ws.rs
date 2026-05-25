@@ -1786,7 +1786,7 @@ async fn handle_text(
                 return Ok(());
             }
             let topic = topic.trim().to_string();
-            if topic.is_empty() || topic.len() > 80 {
+            if topic.is_empty() || topic.len() > crate::validation::MAX_RAISE_HAND_TOPIC_LEN {
                 let _ = send(
                     sink,
                     &error_frame(
@@ -1799,8 +1799,8 @@ async fn handle_text(
                 .await;
                 return Ok(());
             }
-            let word_count = topic.split_whitespace().count();
-            if word_count > 10 {
+            let word_count = crate::validation::count_topic_words(&topic);
+            if word_count > crate::validation::MAX_RAISE_HAND_TOPIC_WORDS {
                 let _ = send(
                     sink,
                     &error_frame(
