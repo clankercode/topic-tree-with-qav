@@ -69,6 +69,16 @@ export function App() {
     return () => window.clearInterval(handle);
   }, [tick]);
 
+  useEffect(() => {
+    if (localStorage.getItem("ttq-e2e") !== "1") return;
+    const w = window as Window & {
+      __ttqSessionStore?: typeof useSessionStore;
+      __ttqThemeStore?: typeof useThemeStore;
+    };
+    w.__ttqSessionStore = useSessionStore;
+    w.__ttqThemeStore = useThemeStore;
+  }, []);
+
   return (
     <BrowserRouter>
       <AppRoutes />

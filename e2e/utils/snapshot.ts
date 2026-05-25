@@ -36,10 +36,20 @@ export async function awaitAppReady(
 
 async function setTheme(page: Page, theme: "light" | "dark") {
   await page.evaluate((t) => {
+    localStorage.setItem("ttq-e2e", "1");
     localStorage.setItem("theme", t);
-    const r = document.documentElement;
-    if (t === "dark") r.classList.add("dark");
-    else r.classList.remove("dark");
+    const w = window as Window & {
+      __ttqThemeStore?: {
+        getState: () => { setMode: (mode: "light" | "dark") => void };
+      };
+    };
+    if (w.__ttqThemeStore) {
+      w.__ttqThemeStore.getState().setMode(t);
+    } else {
+      const r = document.documentElement;
+      if (t === "dark") r.classList.add("dark");
+      else r.classList.remove("dark");
+    }
   }, theme);
   await page.evaluate(
     () =>

@@ -69,7 +69,7 @@ export function PenToolPalette({
           {presetColors.map((c) => (
             <button
               key={c}
-              className={`w-5 h-5 rounded border-2 ${color === c ? "border-blue-500" : "border-transparent"}`}
+              className={`w-5 h-5 rounded border-2 ${color === c ? "border-[rgb(var(--accent))]" : "border-transparent"}`}
               style={{ backgroundColor: resolvePenColor(c, isDark) }}
               onClick={() => onColorChange(c)}
             />
@@ -98,13 +98,13 @@ export function PenToolPalette({
 
       <div className="flex items-center gap-1">
         <button
-          className={`px-2 py-1 text-xs rounded ${tool === "pen" ? "bg-blue-500 text-white" : "bg-[rgb(var(--border))]"}`}
+          className={`px-2 py-1 text-xs rounded ${tool === "pen" ? "bg-[rgb(var(--accent))] text-[rgb(var(--primary-fg))]" : "bg-[rgb(var(--border))]"}`}
           onClick={() => onToolChange("pen")}
         >
           Pen
         </button>
         <button
-          className={`px-2 py-1 text-xs rounded ${tool === "text" ? "bg-blue-500 text-white" : "bg-[rgb(var(--border))]"}`}
+          className={`px-2 py-1 text-xs rounded ${tool === "text" ? "bg-[rgb(var(--accent))] text-[rgb(var(--primary-fg))]" : "bg-[rgb(var(--border))]"}`}
           onClick={() => onToolChange("text")}
         >
           Text

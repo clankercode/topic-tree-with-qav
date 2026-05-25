@@ -30,6 +30,7 @@
     --cursor-stroke: 255 255 255; /* #ffffff */
     --cursor-label-bg: 59 130 246; /* #3b82f6 */
     --cursor-label-fg: 255 255 255; /* #ffffff */
+    --pen-canvas-bg: 255 255 255;
   }
 
   .dark {
@@ -55,6 +56,7 @@
     --cursor-stroke: 9 9 11; /* #09090b */
     --cursor-label-bg: 129 140 248; /* #818cf8 */
     --cursor-label-fg: 9 9 11; /* #09090b */
+    --pen-canvas-bg: 24 24 27;
   }
 
   html,
