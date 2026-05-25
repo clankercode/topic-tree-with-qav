@@ -6,6 +6,7 @@ import { CursorLayer } from "./CursorLayer";
 import { ClickPingLayer } from "./ClickPingLayer";
 import { sendWsMsg } from "../ws/manager";
 import { useSessionStore } from "../store";
+import { PEN_INK_PRIMARY } from "../lib/penInk";
 import type { PenBoardContent } from "../ws/types";
 
 interface PenBoardProps {
@@ -16,7 +17,7 @@ interface PenBoardProps {
 
 export function PenBoard({ boardId, content, isHost = false }: PenBoardProps) {
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
-  const [color, setColor] = useState("#000000");
+  const [color, setColor] = useState(PEN_INK_PRIMARY);
   const [size, setSize] = useState(8);
   const [tool, setTool] = useState<ToolMode>("pen");
   const penInProgressStrokes = useSessionStore((s) => s.penInProgressStrokes);

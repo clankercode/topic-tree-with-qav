@@ -513,6 +513,98 @@ describe("ws reducer", () => {
     expect(board?.strokes).toHaveLength(1);
   });
 
+  it("host ignores PenStrokeBegun echo so local points are not wiped", () => {
+    applyServerMessage(
+      welcome(1n, snapshot({ you: { clientId: "c1", role: "host", guestId: "h1" } })),
+    );
+    const key = "b1:s1";
+    useSessionStore.setState({
+      penInProgressStrokes: new Map([
+        [
+          key,
+          {
+            color: "#000",
+            size: 4,
+            points: [[10, 20, 0.5] as [number, number, number]],
+          },
+        ],
+      ]),
+    });
+    applyServerMessage({
+      v: 1,
+      ts: 0n,
+      seq: 2n,
+      type: "PenStrokeBegun",
+      boardId: "b1",
+      strokeId: "s1",
+      color: "#000",
+      size: 4,
+      authorClientId: "c1",
+    });
+    const s = useSessionStore.getState();
+    expect(s.penInProgressStrokes.get(key)?.points).toEqual([[10, 20, 0.5]]);
+  });
+
+  it("host ignores PenStrokeAppended echo so points are not duplicated", () => {
+    applyServerMessage(
+      welcome(1n, snapshot({ you: { clientId: "c1", role: "host", guestId: "h1" } })),
+    );
+    const key = "b1:s1";
+    useSessionStore.setState({
+      penInProgressStrokes: new Map([
+        [
+          key,
+          {
+            color: "#000",
+            size: 4,
+            points: [[10, 20, 0.5] as [number, number, number]],
+          },
+        ],
+      ]),
+    });
+    applyServerMessage({
+      v: 1,
+      ts: 0n,
+      seq: 2n,
+      type: "PenStrokeAppended",
+      boardId: "b1",
+      strokeId: "s1",
+      points: [[30, 40, 0.6] as [number, number, number]],
+    });
+    const s = useSessionStore.getState();
+    expect(s.penInProgressStrokes.get(key)?.points).toHaveLength(1);
+  });
+
+  it("host still applies PenStrokeEnded to finalize stroke", () => {
+    applyServerMessage(
+      welcome(1n, snapshot({ you: { clientId: "c1", role: "host", guestId: "h1" } })),
+    );
+    const key = "b1:s1";
+    useSessionStore.setState({
+      penInProgressStrokes: new Map([
+        [
+          key,
+          {
+            color: "#000",
+            size: 4,
+            points: [[10, 20, 0.5] as [number, number, number]],
+          },
+        ],
+      ]),
+    });
+    applyServerMessage({
+      v: 1,
+      ts: 0n,
+      seq: 2n,
+      type: "PenStrokeEnded",
+      boardId: "b1",
+      strokeId: "s1",
+    });
+    const s = useSessionStore.getState();
+    expect(s.penInProgressStrokes.has(key)).toBe(false);
+    expect(s.penBoards.get("b1")?.strokes).toHaveLength(1);
+  });
+
   it("PenTextUpserted adds or updates text", () => {
     applyServerMessage(welcome(1n));
     applyServerMessage({

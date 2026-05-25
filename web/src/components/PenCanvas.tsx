@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { getStroke } from "perfect-freehand";
 import type { PenStrokeSummary } from "../ws/types";
 import { useThemeStore } from "../store/theme";
+import { resolvePenColor } from "../lib/penInk";
 import type { ToolMode } from "./PenToolPalette";
 
 const CANVAS_WIDTH = 4096;
@@ -92,7 +93,7 @@ export function PenCanvas({
       const pathData = strokeToPath(stroke);
       if (!pathData) continue;
       const path = new Path2D(pathData);
-      ctx.fillStyle = stroke.color;
+      ctx.fillStyle = resolvePenColor(stroke.color, isDark);
       ctx.fill(path);
     }
 
@@ -118,7 +119,7 @@ export function PenCanvas({
       d.push("Z");
       const pathData = d.join(" ");
       const path = new Path2D(pathData);
-      ctx.fillStyle = stroke.color;
+      ctx.fillStyle = resolvePenColor(stroke.color, isDark);
       ctx.fill(path);
     });
   }, [strokes, inProgressStrokes, isDark]);

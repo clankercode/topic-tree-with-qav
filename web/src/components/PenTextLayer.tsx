@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import type { PenText } from "../ws/types";
 import type { ToolMode } from "./PenToolPalette";
+import { useThemeStore } from "../store/theme";
+import { resolvePenColor, PEN_INK_PRIMARY } from "../lib/penInk";
 
 const CANVAS_WIDTH = 4096;
 const CANVAS_HEIGHT = 2304;
@@ -42,6 +44,7 @@ export function PenTextLayer({
 }: PenTextLayerProps) {
   const [editing, setEditing] = useState<TextEditState | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isDark = useThemeStore((s) => s.resolvedTheme === "dark");
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -63,7 +66,7 @@ export function PenTextLayer({
       y,
       text: "",
       fontSize: 24,
-      color: "#000000",
+      color: PEN_INK_PRIMARY,
     });
   };
 
@@ -137,7 +140,7 @@ export function PenTextLayer({
             left: (text.x / CANVAS_WIDTH) * 100 + "%",
             top: (text.y / CANVAS_HEIGHT) * 100 + "%",
             fontSize: text.fontSize + "px",
-            color: text.color,
+            color: resolvePenColor(text.color, isDark),
           }}
           onClick={(e) => handleTextClick(e, text)}
         >
@@ -154,7 +157,7 @@ export function PenTextLayer({
             left: (editing.x / CANVAS_WIDTH) * 100 + "%",
             top: (editing.y / CANVAS_HEIGHT) * 100 + "%",
             fontSize: editing.fontSize + "px",
-            color: editing.color,
+            color: resolvePenColor(editing.color, isDark),
             minWidth: "100px",
             backgroundColor: "rgb(var(--pen-text-bg))",
             borderColor: "rgb(var(--pen-text-border))",

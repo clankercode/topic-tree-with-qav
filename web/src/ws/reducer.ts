@@ -105,11 +105,13 @@ export function applyServerMessage(msg: ServerMsg): void {
       return;
     }
     case "PenStrokeBegun": {
+      if (store.me?.role === "host") return;
       const m = msg as Extract<ServerMsg, { type: "PenStrokeBegun" }>;
       store.applyPenStrokeBegun(m.boardId, m.strokeId, m.color, m.size);
       return;
     }
     case "PenStrokeAppended": {
+      if (store.me?.role === "host") return;
       const m = msg as Extract<ServerMsg, { type: "PenStrokeAppended" }>;
       store.applyPenStrokeAppended(m.boardId, m.strokeId, m.points);
       return;
