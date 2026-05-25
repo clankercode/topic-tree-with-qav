@@ -433,7 +433,9 @@ async fn run_connection(
     };
 
     // ── 6. Register with the room hub + send Welcome + broadcast presence. ──
-    let room = state.rooms.get_or_create(&rid, &title, created_at);
+    let room = state
+        .rooms
+        .get_or_create_hydrated(&state.db, &rid, &title, created_at);
     let client_id = Uuid::new_v4().to_string();
     let effective_name = if display_name.is_empty() {
         match role {
