@@ -307,6 +307,25 @@ pub fn read_boards_for_test(
     .expect("collect")
 }
 
+pub fn read_question_votes_for_test(
+    db: &server::Db,
+    question_id: &str,
+) -> Vec<(String, String)> {
+    let conn = db.get().expect("checkout");
+    let mut stmt = conn
+        .prepare(
+            "SELECT question_id, guest_id FROM question_votes \
+             WHERE question_id = ?1 ORDER BY guest_id",
+        )
+        .expect("prepare");
+    stmt.query_map([question_id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    })
+    .expect("query")
+    .collect::<Result<Vec<_>, _>>()
+    .expect("collect")
+}
+
 pub fn read_pen_strokes_for_test(
     db: &server::Db,
     board_id: &str,
