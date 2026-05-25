@@ -1105,6 +1105,13 @@ async fn handle_text(
             };
             room.add_question(question.clone());
             broadcast_question_added(room, &question);
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::UpsertQuestion {
+                    question: question.clone(),
+                },
+            );
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -1179,6 +1186,26 @@ async fn handle_text(
             };
             if changed {
                 broadcast_vote_updated(room, &question_id, count, guest_id);
+                if vote {
+                    enqueue_write(
+                        state,
+                        room,
+                        WriteOpKind::AddVote {
+                            question_id: question_id.clone(),
+                            guest_id: guest_id.to_string(),
+                            created_at: now_ms(),
+                        },
+                    );
+                } else {
+                    enqueue_write(
+                        state,
+                        room,
+                        WriteOpKind::RemoveVote {
+                            question_id: question_id.clone(),
+                            guest_id: guest_id.to_string(),
+                        },
+                    );
+                }
             }
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
@@ -1236,6 +1263,14 @@ async fn handle_text(
                 return Ok(());
             }
             broadcast_question_updated(room, &question);
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::SetQuestionAnswered {
+                    question_id: question_id.clone(),
+                    answered,
+                },
+            );
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
@@ -1261,6 +1296,13 @@ async fn handle_text(
             let removed = room.delete_question(&question_id);
             if removed {
                 broadcast_question_deleted(room, &question_id);
+                enqueue_write(
+                    state,
+                    room,
+                    WriteOpKind::DeleteQuestion {
+                        question_id: question_id.clone(),
+                    },
+                );
             }
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
@@ -1767,6 +1809,14 @@ async fn handle_text(
             };
             broadcast_question_promoted_to_topic(&room, &question_id, &topic);
             broadcast_topic_tree(&room);
+            enqueue_write(
+                state,
+                room,
+                WriteOpKind::PromoteQuestionToTopic {
+                    question_id: question_id.clone(),
+                    topic: topic.clone(),
+                },
+            );
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,
