@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { listRooms, type RoomRecord } from "../lib/idb";
+import { listRooms, roomHasGuest, roomHasHost, type RoomRecord } from "../lib/idb";
 
 export function RoomsDashboard() {
   const [rooms, setRooms] = useState<RoomRecord[] | null>(null);
@@ -33,10 +33,14 @@ export function RoomsDashboard() {
         ) : (
           <ul className="divide-y divide-[rgb(var(--border))] rounded border border-[rgb(var(--border))]">
             {rooms.map((room) => {
-              const href =
-                room.role === "admin"
-                  ? `/r/${room.roomId}/host`
-                  : `/r/${room.roomId}`;
+              const href = roomHasHost(room)
+                ? `/r/${room.roomId}/host`
+                : `/r/${room.roomId}`;
+              const label = roomHasHost(room)
+                ? "Host"
+                : roomHasGuest(room)
+                  ? "Guest"
+                  : "Room";
               return (
                 <li key={room.roomId} className="p-4">
                   <Link
@@ -45,9 +49,7 @@ export function RoomsDashboard() {
                   >
                     {room.title || room.roomId}
                   </Link>
-                  <p className="text-sm text-[rgb(var(--muted))]">
-                    {room.role === "admin" ? "Host" : "Guest"}
-                  </p>
+                  <p className="text-sm text-[rgb(var(--muted))]">{label}</p>
                 </li>
               );
             })}

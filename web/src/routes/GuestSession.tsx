@@ -7,16 +7,27 @@ import { QAPanel } from "../components/QAPanel";
 import { RaiseHandButton } from "../components/RaiseHandButton";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { TopicTree } from "../components/TopicTree";
-import { getRoom, type RoomRecord } from "../lib/idb";
+import { getRoom } from "../lib/idb";
+import { getPreviewGuest } from "../lib/previewGuest";
 import { setWsClient } from "../ws/manager";
 import { WsClient } from "../ws/client";
 import type { SortMode } from "../components/SortToggle";
 import { useSessionStore } from "../store";
 import { HandMetal } from "lucide-react";
 
-export function GuestSession() {
+interface GuestSessionView {
+  title: string;
+  guestId: string;
+  displayName: string;
+}
+
+interface GuestSessionProps {
+  preview?: boolean;
+}
+
+export function GuestSession({ preview = false }: GuestSessionProps) {
   const { roomId } = useParams();
-  const [record, setRecord] = useState<RoomRecord | null | undefined>(
+  const [view, setView] = useState<GuestSessionView | null | undefined>(
     undefined,
   );
   const [sortMode, setSortMode] = useState<SortMode>("chronological");
@@ -25,27 +36,45 @@ export function GuestSession() {
 
   useEffect(() => {
     if (!roomId) {
-      setRecord(null);
+      setView(null);
       return;
     }
     if (kicked) {
-      // Kicked guests should not reconnect; the route renders the
-      // removed-from-room screen below.
       return;
     }
     let alive = true;
     let client: WsClient | null = null;
-    void getRoom(roomId).then((room) => {
-      if (!alive) return;
-      if (!room) {
-        setRecord(null);
-        return;
+
+    async function connect() {
+      let session: GuestSessionView | null = null;
+
+      if (preview) {
+        const previewGuest = getPreviewGuest(roomId!);
+        if (!previewGuest?.displayName) {
+          if (alive) setView(null);
+          return;
+        }
+        const room = await getRoom(roomId!);
+        session = {
+          title: room?.title ?? "Untitled room",
+          guestId: previewGuest.guestId,
+          displayName: previewGuest.displayName,
+        };
+      } else {
+        const room = await getRoom(roomId!);
+        if (!room?.guest?.displayName) {
+          if (alive) setView(null);
+          return;
+        }
+        session = {
+          title: room.title,
+          guestId: room.guest.guestId,
+          displayName: room.guest.displayName,
+        };
       }
-      if (room.role !== "guest") {
-        setRecord(null);
-        return;
-      }
-      setRecord(room);
+
+      if (!alive || !session) return;
+      setView(session);
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws?room=${roomId}`;
@@ -53,8 +82,8 @@ export function GuestSession() {
         url: wsUrl,
         hello: {
           role: "guest",
-          guestId: room.guestId,
-          displayName: room.displayName,
+          guestId: session.guestId,
+          displayName: session.displayName,
         },
         onOpen: () => {
           console.log("guest ws connected");
@@ -72,15 +101,18 @@ export function GuestSession() {
       client.start();
       setConnectionStatus("connecting");
       setWsClient(client);
-    });
+    }
+
+    void connect();
+
     return () => {
       alive = false;
       setWsClient(null);
       client?.stop();
     };
-  }, [roomId, kicked, setConnectionStatus]);
+  }, [roomId, kicked, preview, setConnectionStatus]);
 
-  if (record === undefined) {
+  if (view === undefined) {
     return (
       <main className="min-h-full flex items-center justify-center p-8">
         <p className="text-[rgb(var(--muted))]">Connecting…</p>
@@ -88,7 +120,10 @@ export function GuestSession() {
     );
   }
 
-  if (!record || !roomId) {
+  if (!view || !roomId) {
+    if (preview) {
+      return <Navigate to={`/r/${roomId}/preview`} replace />;
+    }
     return <Navigate to="/" replace />;
   }
 
@@ -119,15 +154,23 @@ export function GuestSession() {
   return (
     <>
       <ConnectionBanner />
+      {preview ? (
+        <div
+          data-testid="preview-guest-banner"
+          className="border-b border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-4 py-2 text-center text-sm text-[rgb(var(--muted))]"
+        >
+          Preview mode — this tab is not saved to your rooms
+        </div>
+      ) : null}
       <main data-testid="guest-shell" className="min-h-full p-6">
         <div className="mx-auto max-w-5xl space-y-4">
           <header className="flex items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">
-                {record.title}
+                {view.title}
               </h1>
               <p className="text-sm text-[rgb(var(--muted))]">
-                Joined as {record.displayName}
+                Joined as {view.displayName}
               </p>
             </div>
             <div className="flex items-center gap-3">

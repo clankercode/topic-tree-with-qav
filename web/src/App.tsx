@@ -4,6 +4,7 @@ import { ToastContainer } from "./components/ToastContainer";
 import { About } from "./routes/About";
 import { GuestSession } from "./routes/GuestSession";
 import { Landing } from "./routes/Landing";
+import { PreviewGuestEntry } from "./routes/PreviewGuestEntry";
 import { RoomDispatch } from "./routes/RoomDispatch";
 import { RoomEntry } from "./routes/RoomEntry";
 import { RoomsDashboard } from "./routes/RoomsDashboard";
@@ -22,6 +23,11 @@ export function AppRoutes() {
       <Route path="/r/:roomId/join" element={<RoomEntry />} />
       <Route path="/r/:roomId/host" element={<HostSession />} />
       <Route path="/r/:roomId/guest" element={<GuestSession />} />
+      <Route path="/r/:roomId/preview" element={<PreviewGuestEntry />} />
+      <Route
+        path="/r/:roomId/preview/guest"
+        element={<GuestSession preview />}
+      />
     </Routes>
   );
 }

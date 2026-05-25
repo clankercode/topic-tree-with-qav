@@ -1,4 +1,4 @@
-import { getOrCreateGuestId, upsertRoom } from "./idb";
+import { getOrCreateGuestId, mergeRoomHost } from "./idb";
 
 export interface CreatedRoom {
   roomId: string;
@@ -53,12 +53,10 @@ export async function persistCreatedRoomAsAdmin(
 ): Promise<void> {
   const guestId = await getOrCreateGuestId();
   const now = Date.now();
-  await upsertRoom({
-    roomId: room.roomId,
+  await mergeRoomHost(room.roomId, {
     title: room.title,
-    role: "admin",
     adminToken: room.adminToken,
-    guestId,
+    hostGuestId: guestId,
     createdAt: now,
     lastJoinedAt: now,
   });
