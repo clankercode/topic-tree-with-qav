@@ -35,8 +35,7 @@ use crate::api::now_ms;
 use crate::auth::{is_valid_display_name, is_valid_guest_id, verify_admin_token};
 use crate::db::WriteOpKind;
 use crate::intents::helpers::{
-    broadcast_board_created, broadcast_board_deleted, broadcast_board_updated, broadcast_clicked,
-    broadcast_cursor_moved, broadcast_excalidraw_delta, broadcast_excalidraw_scene_reset,
+    broadcast_clicked, broadcast_cursor_moved, broadcast_excalidraw_scene_reset,
     broadcast_focused_board_changed, broadcast_presence, enqueue_write, error_frame, send,
     IntentError, SessionCtx,
 };
@@ -782,166 +781,22 @@ async fn handle_text(
             };
             handle_intent_result(sink, result).await
         }
-        ClientMsg::CreateBoard {
-            id, kind, title, ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
+        ClientMsg::CreateBoard { .. }
+        | ClientMsg::RenameBoard { .. }
+        | ClientMsg::DeleteBoard { .. }
+        | ClientMsg::ExcalidrawUpdate { .. } => {
+            let result = {
+                let mut ctx = SessionCtx {
                     sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let title = title.unwrap_or_else(|| "Untitled".into());
-            if title.is_empty() || title.len() > 200 {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::BAD_REQUEST,
-                        "title must be 1..=200 chars",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            let board_id = Uuid::new_v4().to_string();
-            let now = now_ms();
-            let ord = room.boards().iter().map(|b| b.ord).fold(0.0, f64::max) + 1.0;
-            let board = crate::proto::Board {
-                id: board_id.clone(),
-                kind,
-                title,
-                created_at: now,
-                ord,
+                    room,
+                    state,
+                    client_id,
+                    guest_id,
+                    role,
+                };
+                crate::intents::excalidraw::handle(&mut ctx, msg).await
             };
-            room.create_board(board.clone(), now);
-            broadcast_board_created(room, &board);
-            enqueue_write(
-                state,
-                room,
-                WriteOpKind::UpsertBoard {
-                    board: board.clone(),
-                },
-            );
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::RenameBoard {
-            id,
-            board_id,
-            title,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let title = title.trim().to_string();
-            if title.is_empty() || title.len() > 200 {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::BAD_REQUEST,
-                        "title must be 1..=200 chars",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            match room.rename_board(&board_id, title.clone()) {
-                Some(board) => {
-                    broadcast_board_updated(room, &board);
-                    enqueue_write(
-                        state,
-                        room,
-                        WriteOpKind::RenameBoard {
-                            board_id: board_id.clone(),
-                            title,
-                        },
-                    );
-                }
-                None => {
-                    let _ = send(
-                        sink,
-                        &error_frame(
-                            error_codes::BAD_REQUEST,
-                            "board not found",
-                            id,
-                            room.current_seq(),
-                        ),
-                    )
-                    .await;
-                    return Ok(());
-                }
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::DeleteBoard { id, board_id, .. } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            if !room.delete_board(&board_id) {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::BAD_REQUEST,
-                        "board not found",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            broadcast_board_deleted(room, &board_id);
-            enqueue_write(
-                state,
-                room,
-                WriteOpKind::DeleteBoard {
-                    board_id: board_id.clone(),
-                },
-            );
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
+            handle_intent_result(sink, result).await
         }
         ClientMsg::SetFocusedBoard { id, board_id, .. } => {
             if role != Role::Host {
@@ -974,80 +829,6 @@ async fn handle_text(
                     board_id: Some(board_id.clone()),
                 },
             );
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::ExcalidrawUpdate {
-            id,
-            board_id,
-            scene_version,
-            elements,
-            app_state,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let now = now_ms();
-            match room.update_excalidraw_scene(
-                &board_id,
-                scene_version,
-                elements.clone(),
-                app_state.clone(),
-                now,
-            ) {
-                crate::room::ExcalidrawUpdateOutcome::Applied => {
-                    broadcast_excalidraw_delta(
-                        room,
-                        &board_id,
-                        scene_version,
-                        &elements,
-                        &app_state,
-                    );
-                    enqueue_write(
-                        state,
-                        room,
-                        WriteOpKind::UpsertExcalidrawScene {
-                            board_id: board_id.clone(),
-                            scene_version,
-                            elements_json: serde_json::to_string(&elements)
-                                .unwrap_or_else(|_| "[]".into()),
-                            app_state_json: serde_json::to_string(&app_state)
-                                .unwrap_or_else(|_| "{}".into()),
-                            updated_at: now,
-                        },
-                    );
-                }
-                crate::room::ExcalidrawUpdateOutcome::Stale => {
-                    // Silently drop — newer state is already authoritative.
-                }
-                crate::room::ExcalidrawUpdateOutcome::BoardMissing => {
-                    let _ = send(
-                        sink,
-                        &error_frame(
-                            error_codes::BAD_REQUEST,
-                            "board not found or not an excalidraw board",
-                            id,
-                            room.current_seq(),
-                        ),
-                    )
-                    .await;
-                    return Ok(());
-                }
-            }
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,

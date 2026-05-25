@@ -1,3 +1,4 @@
+pub mod excalidraw;
 pub mod helpers;
 pub mod moderation;
 pub mod pen;
