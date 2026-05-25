@@ -149,13 +149,15 @@ export function PenTextLayer({
         <input
           ref={inputRef}
           type="text"
-          className="absolute pointer-events-auto px-1 py-0.5 rounded border border-blue-500 outline-none bg-white"
+          className="absolute pointer-events-auto px-1 py-0.5 rounded border outline-none"
           style={{
             left: (editing.x / CANVAS_WIDTH) * 100 + "%",
             top: (editing.y / CANVAS_HEIGHT) * 100 + "%",
             fontSize: editing.fontSize + "px",
             color: editing.color,
             minWidth: "100px",
+            backgroundColor: "rgb(var(--pen-text-bg))",
+            borderColor: "rgb(var(--pen-text-border))",
           }}
           value={editing.text}
           onChange={(e) => setEditing({ ...editing, text: e.target.value })}

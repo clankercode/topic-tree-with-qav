@@ -16,6 +16,20 @@
     --primary-fg: 255 255 255;
     --success: 22 163 74;
     --success-fg: 255 255 255;
+    /* G.6: theme-aware overlays. Pen text input + click ping + live
+       cursor were hardcoded for light theme before, which gave low
+       contrast in dark mode. Defined as raw 3-channel RGB so the
+       Tailwind `rgb(var(...))` form works. Hex equivalents in
+       comments for traceability. */
+    --pen-text-bg: 255 255 255;          /* #ffffff */
+    --pen-text-fg: 24 24 27;             /* #18181b */
+    --pen-text-border: 59 130 246;       /* #3b82f6 */
+    --click-ping-fill: 59 130 246;       /* #3b82f6 */
+    --click-ping-fg: 255 255 255;        /* #ffffff */
+    --cursor-fill: 59 130 246;           /* #3b82f6 */
+    --cursor-stroke: 255 255 255;        /* #ffffff */
+    --cursor-label-bg: 59 130 246;       /* #3b82f6 */
+    --cursor-label-fg: 255 255 255;      /* #ffffff */
   }
 
   .dark {
@@ -28,6 +42,19 @@
     --primary-fg: 9 9 11;
     --success: 74 222 128;
     --success-fg: 9 9 11;
+    /* G.6 dark overrides: invert pen text input (so dark mode shows
+       light text on a dark editable surface), pull cursors/clicks
+       to the brighter accent so they read against the near-black
+       background. */
+    --pen-text-bg: 24 24 27;             /* #18181b — surface */
+    --pen-text-fg: 244 244 245;          /* #f4f4f5 — fg */
+    --pen-text-border: 129 140 248;      /* #818cf8 — accent */
+    --click-ping-fill: 129 140 248;      /* #818cf8 */
+    --click-ping-fg: 9 9 11;             /* #09090b */
+    --cursor-fill: 129 140 248;          /* #818cf8 */
+    --cursor-stroke: 9 9 11;             /* #09090b */
+    --cursor-label-bg: 129 140 248;      /* #818cf8 */
+    --cursor-label-fg: 9 9 11;           /* #09090b */
   }
 
   html,

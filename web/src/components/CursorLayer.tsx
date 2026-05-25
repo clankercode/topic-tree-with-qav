@@ -28,12 +28,12 @@ function Cursor({ cursor, targetX, targetY }: CursorProps) {
       >
         <path
           d="M0 0L0 16L4 12L7 19L9 18L6 11L12 11L0 0Z"
-          fill="#3B82F6"
-          stroke="white"
+          fill="rgb(var(--cursor-fill))"
+          stroke="rgb(var(--cursor-stroke))"
           strokeWidth="1"
         />
       </svg>
-      <span className="ml-1 mt-0.5 whitespace-nowrap rounded-md bg-blue-500 px-1.5 py-0.5 text-xs font-medium text-white shadow-sm">
+      <span className="ml-1 mt-0.5 whitespace-nowrap rounded-md bg-[rgb(var(--cursor-label-bg))] px-1.5 py-0.5 text-xs font-medium text-[rgb(var(--cursor-label-fg))] shadow-sm">
         {cursor.displayName}
       </span>
     </div>

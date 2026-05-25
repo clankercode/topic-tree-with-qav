@@ -55,8 +55,8 @@ export function ClickPingLayer({ boardId }: ClickPingLayerProps) {
           }}
         >
           <div className="relative flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full border-2 border-blue-500 animate-ping opacity-75" />
-            <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-blue-500 px-2 py-1 text-xs text-white">
+            <div className="w-8 h-8 rounded-full border-2 border-[rgb(var(--click-ping-fill))] animate-ping opacity-75" />
+            <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-[rgb(var(--click-ping-fill))] px-2 py-1 text-xs text-[rgb(var(--click-ping-fg))]">
               {ping.displayName}
             </div>
           </div>
