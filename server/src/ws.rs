@@ -37,10 +37,10 @@ use crate::db::WriteOpKind;
 use crate::intents::helpers::{
     broadcast_board_created, broadcast_board_deleted, broadcast_board_updated, broadcast_clicked,
     broadcast_cursor_moved, broadcast_excalidraw_delta, broadcast_excalidraw_scene_reset,
-    broadcast_focused_board_changed, broadcast_hands_updated, broadcast_pen_cleared,
-    broadcast_pen_stroke_appended, broadcast_pen_stroke_begun, broadcast_pen_stroke_ended,
-    broadcast_pen_text_deleted, broadcast_pen_text_upserted, broadcast_pen_undone,
-    broadcast_presence, enqueue_write, error_frame, send, IntentError, SessionCtx,
+    broadcast_focused_board_changed, broadcast_pen_cleared, broadcast_pen_stroke_appended,
+    broadcast_pen_stroke_begun, broadcast_pen_stroke_ended, broadcast_pen_text_deleted,
+    broadcast_pen_text_upserted, broadcast_pen_undone, broadcast_presence, enqueue_write,
+    error_frame, send, IntentError, SessionCtx,
 };
 use crate::metrics::SharedMetrics;
 use crate::proto::{error_codes, ClientMsg, Role, ServerMsg, You, PROTOCOL_VERSION};
@@ -1061,154 +1061,22 @@ async fn handle_text(
             }
             Ok(())
         }
-        ClientMsg::RaiseHand { id, topic, .. } => {
-            if role != Role::Guest {
-                let _ = send(
+        ClientMsg::RaiseHand { .. }
+        | ClientMsg::LowerHand { .. }
+        | ClientMsg::CallOnHand { .. }
+        | ClientMsg::DismissHand { .. } => {
+            let result = {
+                let mut ctx = SessionCtx {
                     sink,
-                    &error_frame(
-                        error_codes::FORBIDDEN,
-                        "raise hand is guest-only",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            if room.is_muted(guest_id) {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "muted", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let topic = topic.trim().to_string();
-            if topic.is_empty() || topic.len() > crate::validation::MAX_RAISE_HAND_TOPIC_LEN {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::BAD_REQUEST,
-                        "topic must be 1..=80 chars",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            let word_count = crate::validation::count_topic_words(&topic);
-            if word_count > crate::validation::MAX_RAISE_HAND_TOPIC_WORDS {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::BAD_REQUEST,
-                        "topic must be 10 words or fewer",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            if !global_rate_limiter().check(client_id, "RaiseHand", Quota::per_minute(2.0)) {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::RATE_LIMIT,
-                        "too many raised hands, slow down",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            let presence = room.presence();
-            let display_name = presence
-                .iter()
-                .find(|p| p.guest_id == guest_id)
-                .map(|p| p.display_name.clone())
-                .unwrap_or_else(|| "Guest".to_string());
-            let now = now_ms();
-            room.raise_hand(guest_id, display_name, topic, now);
-            broadcast_hands_updated(&room);
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
+                    room,
+                    state,
+                    client_id,
+                    guest_id,
+                    role,
                 };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::LowerHand { id, .. } => {
-            room.lower_hand(guest_id);
-            broadcast_hands_updated(&room);
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::CallOnHand {
-            id,
-            guest_id: target_guest_id,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let _ = room.call_on_hand(&target_guest_id);
-            broadcast_hands_updated(&room);
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::DismissHand {
-            id,
-            guest_id: target_guest_id,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            room.dismiss_hand(&target_guest_id);
-            broadcast_hands_updated(&room);
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
+                crate::intents::raise_hand::handle(&mut ctx, msg).await
+            };
+            handle_intent_result(sink, result).await
         }
         ClientMsg::PenStrokeBegin {
             id,
