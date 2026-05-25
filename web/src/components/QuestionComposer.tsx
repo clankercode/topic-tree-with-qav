@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Send } from "lucide-react";
 import { registerPendingSubmit, sendWsMsg } from "../ws/manager";
 import { useSessionStore } from "../store";
@@ -8,6 +8,8 @@ interface QuestionComposerProps {
   onSubmitted?: () => void;
 }
 
+const SUBMIT_TIMEOUT_MS = 5000;
+
 /// G.5: preserve draft text until the matching `Ack` lands. On Error
 /// with code `rate_limit` or `muted`, restore the input and surface
 /// a toast so the user can edit + retry instead of retyping.
@@ -16,17 +18,38 @@ export function QuestionComposer({ onSubmitted }: QuestionComposerProps) {
   const [anonymous, setAnonymous] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const me = useSessionStore((s) => s.me);
+  const connectionStatus = useSessionStore((s) => s.connectionStatus);
   const addToast = useToastStore((s) => s.addToast);
   // Cleanup callbacks for in-flight submissions: registers run during
   // submit; if the component unmounts before the ack/error, we let
   // resolution still happen (no DOM access), so cleanup is best-effort.
   const cleanupRef = useRef<(() => void) | null>(null);
+  const timeoutRef = useRef<number | null>(null);
+  const restorePendingRef = useRef<(() => void) | null>(null);
+  const clearPendingSubmission = useCallback(() => {
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+    if (timeoutRef.current !== null) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    restorePendingRef.current = null;
+  }, []);
+
   useEffect(
     () => () => {
-      cleanupRef.current?.();
+      clearPendingSubmission();
     },
-    [],
+    [clearPendingSubmission],
   );
+
+  useEffect(() => {
+    if (connectionStatus === "connected") return;
+    const restore = restorePendingRef.current;
+    if (!restore) return;
+    clearPendingSubmission();
+    restore();
+  }, [clearPendingSubmission, connectionStatus]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,10 +66,22 @@ export function QuestionComposer({ onSubmitted }: QuestionComposerProps) {
     // fields verbatim.
     setText("");
 
-    cleanupRef.current?.();
-    cleanupRef.current = registerPendingSubmit(refId, (outcome) => {
+    clearPendingSubmission();
+    restorePendingRef.current = () => {
+      setText(submittedText);
+      setAnonymous(submittedAnonymous);
       setIsSubmitting(false);
-      cleanupRef.current = null;
+      addToast("Submission timed out — please retry.", "error");
+    };
+    timeoutRef.current = window.setTimeout(() => {
+      const restore = restorePendingRef.current;
+      if (!restore) return;
+      clearPendingSubmission();
+      restore();
+    }, SUBMIT_TIMEOUT_MS);
+    cleanupRef.current = registerPendingSubmit(refId, (outcome) => {
+      clearPendingSubmission();
+      setIsSubmitting(false);
       if (outcome.kind === "ack") {
         onSubmitted?.();
         return;

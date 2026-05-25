@@ -3,11 +3,12 @@
 // this fix the input was cleared immediately on submit, so a
 // rejection meant the user had to retype.
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { QuestionComposer } from "../../src/components/QuestionComposer";
 import { useSessionStore } from "../../src/store";
+import { useToastStore } from "../../src/store/toast";
 import { resolvePendingSubmit, sendWsMsg } from "../../src/ws/manager";
 
 vi.mock("../../src/ws/manager", async () => {
@@ -25,8 +26,14 @@ describe("QuestionComposer.G5 — draft rollback on error", () => {
     useSessionStore.getState().reset();
     useSessionStore.setState({
       me: { clientId: "c1", role: "guest", guestId: "g-1" },
+      connectionStatus: "connected",
     });
+    useToastStore.setState({ toasts: [] });
     vi.mocked(sendWsMsg).mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("clears input on Ack matching the submission's refId", () => {
@@ -90,5 +97,56 @@ describe("QuestionComposer.G5 — draft rollback on error", () => {
       }),
     );
     expect(input.value).toBe("Question while muted");
+  });
+
+  it("restores input and clears submitting when the submission times out", () => {
+    vi.useFakeTimers();
+    render(<QuestionComposer />);
+    const input = screen.getByPlaceholderText(
+      "Ask a question...",
+    ) as HTMLTextAreaElement;
+    const anonymous = screen.getByLabelText(
+      /ask anonymously/i,
+    ) as HTMLInputElement;
+
+    fireEvent.change(input, { target: { value: "Slow question?" } });
+    fireEvent.click(anonymous);
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }));
+
+    expect(input.value).toBe("");
+    expect(screen.getByRole("button", { name: /submit/i })).toBeDisabled();
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(input.value).toBe("Slow question?");
+    expect(anonymous.checked).toBe(true);
+    expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+    expect(useToastStore.getState().toasts.at(-1)?.message).toBe(
+      "Submission timed out — please retry.",
+    );
+  });
+
+  it("restores input when the connection drops before Ack or Error", () => {
+    vi.useFakeTimers();
+    render(<QuestionComposer />);
+    const input = screen.getByPlaceholderText(
+      "Ask a question...",
+    ) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "Disconnected question?" } });
+    fireEvent.click(screen.getByRole("button", { name: /submit/i }));
+
+    expect(input.value).toBe("");
+
+    act(() => {
+      useSessionStore.setState({ connectionStatus: "disconnected" });
+    });
+
+    expect(input.value).toBe("Disconnected question?");
+    expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+    expect(useToastStore.getState().toasts.at(-1)?.message).toBe(
+      "Submission timed out — please retry.",
+    );
   });
 });
