@@ -1,3 +1,4 @@
 test-results/
 playwright-report/
 .last-run.json
+.docs-snapshots/
