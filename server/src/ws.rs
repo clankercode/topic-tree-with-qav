@@ -40,12 +40,10 @@ use crate::intents::helpers::{
     broadcast_focused_board_changed, broadcast_hands_updated, broadcast_pen_cleared,
     broadcast_pen_stroke_appended, broadcast_pen_stroke_begun, broadcast_pen_stroke_ended,
     broadcast_pen_text_deleted, broadcast_pen_text_upserted, broadcast_pen_undone,
-    broadcast_presence, broadcast_question_added, broadcast_question_deleted,
-    broadcast_question_promoted_to_topic, broadcast_question_updated, broadcast_topic_tree,
-    broadcast_vote_updated, enqueue_write, error_frame, send, IntentError, SessionCtx,
+    broadcast_presence, enqueue_write, error_frame, send, IntentError, SessionCtx,
 };
 use crate::metrics::SharedMetrics;
-use crate::proto::{error_codes, ClientMsg, Question, Role, ServerMsg, You, PROTOCOL_VERSION};
+use crate::proto::{error_codes, ClientMsg, Role, ServerMsg, You, PROTOCOL_VERSION};
 use crate::rate_limit::Quota;
 use crate::room::Room;
 use crate::state::{global_rate_limiter, AppState};
@@ -754,295 +752,23 @@ async fn handle_text(
             };
             handle_intent_result(sink, result).await
         }
-        ClientMsg::SubmitQuestion {
-            id,
-            text,
-            anonymous,
-            ..
-        } => {
-            if role != Role::Guest {
-                let _ = send(
+        ClientMsg::SubmitQuestion { .. }
+        | ClientMsg::VoteQuestion { .. }
+        | ClientMsg::MarkQuestionAnswered { .. }
+        | ClientMsg::DeleteQuestion { .. }
+        | ClientMsg::PromoteQuestionToTopic { .. } => {
+            let result = {
+                let mut ctx = SessionCtx {
                     sink,
-                    &error_frame(
-                        error_codes::FORBIDDEN,
-                        "only guests can submit questions",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            if room.is_muted(guest_id) {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::MUTED,
-                        "you are muted and cannot submit questions",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            if !global_rate_limiter().check(client_id, "SubmitQuestion", Quota::per_minute(6.0)) {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::RATE_LIMIT,
-                        "too many questions, slow down",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            let text = text.trim().to_string();
-            if text.is_empty() || text.len() > 500 {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::BAD_REQUEST,
-                        "question text must be 1..=500 chars",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            let question_id = Uuid::new_v4().to_string();
-            let now = now_ms();
-            let presence = room.presence();
-            let author_name = presence
-                .iter()
-                .find(|p| p.guest_id == guest_id)
-                .map(|p| p.display_name.clone())
-                .unwrap_or_else(|| "Anonymous".to_string());
-            let question = Question {
-                id: question_id.clone(),
-                room_id: room.id.clone(),
-                author_guest_id: guest_id.to_string(),
-                author_name,
-                anonymous,
-                text,
-                answered: false,
-                created_at: now,
-                vote_count: 0,
-            };
-            room.add_question(question.clone());
-            broadcast_question_added(room, &question);
-            enqueue_write(
-                state,
-                room,
-                WriteOpKind::UpsertQuestion {
-                    question: question.clone(),
-                },
-            );
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::VoteQuestion {
-            id,
-            question_id,
-            vote,
-            ..
-        } => {
-            if role != Role::Guest {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::FORBIDDEN,
-                        "only guests can vote",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            if room.is_muted(guest_id) {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::MUTED,
-                        "you are muted and cannot vote",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            if !global_rate_limiter().check(client_id, "VoteQuestion", Quota::per_minute(30.0)) {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::RATE_LIMIT,
-                        "too many votes, slow down",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            let (count, changed) = match room.vote_question(&question_id, guest_id, vote) {
-                Some(c) => c,
-                None => {
-                    let _ = send(
-                        sink,
-                        &error_frame(
-                            error_codes::BAD_REQUEST,
-                            "question not found",
-                            id,
-                            room.current_seq(),
-                        ),
-                    )
-                    .await;
-                    return Ok(());
-                }
-            };
-            if changed {
-                broadcast_vote_updated(room, &question_id, count, guest_id);
-                if vote {
-                    enqueue_write(
-                        state,
-                        room,
-                        WriteOpKind::AddVote {
-                            question_id: question_id.clone(),
-                            guest_id: guest_id.to_string(),
-                            created_at: now_ms(),
-                        },
-                    );
-                } else {
-                    enqueue_write(
-                        state,
-                        room,
-                        WriteOpKind::RemoveVote {
-                            question_id: question_id.clone(),
-                            guest_id: guest_id.to_string(),
-                        },
-                    );
-                }
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::MarkQuestionAnswered {
-            id,
-            question_id,
-            answered,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let mut question = match room.get_question(&question_id) {
-                Some(q) => q,
-                None => {
-                    let _ = send(
-                        sink,
-                        &error_frame(
-                            error_codes::BAD_REQUEST,
-                            "question not found",
-                            id,
-                            room.current_seq(),
-                        ),
-                    )
-                    .await;
-                    return Ok(());
-                }
-            };
-            question.answered = answered;
-            if !room.update_question(question.clone()) {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::BAD_REQUEST,
-                        "question not found",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-            broadcast_question_updated(room, &question);
-            enqueue_write(
-                state,
-                room,
-                WriteOpKind::SetQuestionAnswered {
-                    question_id: question_id.clone(),
-                    answered,
-                },
-            );
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::DeleteQuestion {
-            id, question_id, ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let removed = room.delete_question(&question_id);
-            if removed {
-                broadcast_question_deleted(room, &question_id);
-                enqueue_write(
-                    state,
                     room,
-                    WriteOpKind::DeleteQuestion {
-                        question_id: question_id.clone(),
-                    },
-                );
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
+                    state,
+                    client_id,
+                    guest_id,
+                    role,
                 };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
+                crate::intents::questions::handle(&mut ctx, msg).await
+            };
+            handle_intent_result(sink, result).await
         }
         ClientMsg::KickGuest {
             id,
@@ -1538,57 +1264,6 @@ async fn handle_text(
             }
             room.dismiss_hand(&target_guest_id);
             broadcast_hands_updated(&room);
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PromoteQuestionToTopic {
-            id,
-            question_id,
-            parent_topic_id,
-            after_topic_id,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let Some((_question, topic)) =
-                room.promote_question_to_topic(&question_id, parent_topic_id, after_topic_id)
-            else {
-                let _ = send(
-                    sink,
-                    &error_frame(
-                        error_codes::BAD_REQUEST,
-                        "question not found",
-                        id,
-                        room.current_seq(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            };
-            broadcast_question_promoted_to_topic(&room, &question_id, &topic);
-            broadcast_topic_tree(&room);
-            enqueue_write(
-                state,
-                room,
-                WriteOpKind::PromoteQuestionToTopic {
-                    question_id: question_id.clone(),
-                    topic: topic.clone(),
-                },
-            );
             if let Some(rid) = id {
                 let ack = ServerMsg::Ack {
                     v: PROTOCOL_VERSION,

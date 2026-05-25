@@ -14,7 +14,6 @@ use crate::state::AppState;
 
 pub(crate) type WsSink = futures_util::stream::SplitSink<WebSocket, Message>;
 
-#[allow(dead_code)]
 pub(crate) struct SessionCtx<'a> {
     pub sink: &'a mut WsSink,
     pub room: &'a Arc<Room>,
@@ -81,7 +80,6 @@ pub(crate) fn ensure_host(ctx: &SessionCtx<'_>, ref_id: Option<&str>) -> Result<
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn ensure_not_muted(
     ctx: &SessionCtx<'_>,
     ref_id: Option<&str>,
