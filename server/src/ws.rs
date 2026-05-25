@@ -37,10 +37,8 @@ use crate::db::WriteOpKind;
 use crate::intents::helpers::{
     broadcast_board_created, broadcast_board_deleted, broadcast_board_updated, broadcast_clicked,
     broadcast_cursor_moved, broadcast_excalidraw_delta, broadcast_excalidraw_scene_reset,
-    broadcast_focused_board_changed, broadcast_pen_cleared, broadcast_pen_stroke_appended,
-    broadcast_pen_stroke_begun, broadcast_pen_stroke_ended, broadcast_pen_text_deleted,
-    broadcast_pen_text_upserted, broadcast_pen_undone, broadcast_presence, enqueue_write,
-    error_frame, send, IntentError, SessionCtx,
+    broadcast_focused_board_changed, broadcast_presence, enqueue_write, error_frame, send,
+    IntentError, SessionCtx,
 };
 use crate::metrics::SharedMetrics;
 use crate::proto::{error_codes, ClientMsg, Role, ServerMsg, You, PROTOCOL_VERSION};
@@ -1078,298 +1076,25 @@ async fn handle_text(
             };
             handle_intent_result(sink, result).await
         }
-        ClientMsg::PenStrokeBegin {
-            id,
-            board_id,
-            stroke_id,
-            color,
-            size,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
+        ClientMsg::PenStrokeBegin { .. }
+        | ClientMsg::PenStrokeAppend { .. }
+        | ClientMsg::PenStrokeEnd { .. }
+        | ClientMsg::PenTextSet { .. }
+        | ClientMsg::PenTextDelete { .. }
+        | ClientMsg::PenClear { .. }
+        | ClientMsg::PenUndo { .. } => {
+            let result = {
+                let mut ctx = SessionCtx {
                     sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let now = now_ms();
-            if room
-                .pen_begin_stroke(&board_id, stroke_id.clone(), color.clone(), size, now)
-                .is_some()
-            {
-                broadcast_pen_stroke_begun(room, &board_id, &stroke_id, &color, size, client_id);
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PenStrokeAppend {
-            id,
-            board_id,
-            stroke_id,
-            points,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            if !global_rate_limiter().check(client_id, "PenStrokeAppend", Quota::per_second(60.0)) {
-                return Ok(());
-            }
-            if room.pen_append_points(&board_id, &stroke_id, points.clone()) {
-                broadcast_pen_stroke_appended(room, &board_id, &stroke_id, points);
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PenStrokeEnd {
-            id,
-            board_id,
-            stroke_id,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            if let Some((summary, action_id)) = room.pen_end_stroke(&board_id, &stroke_id) {
-                broadcast_pen_stroke_ended(room, &board_id, &stroke_id);
-                let created_at = summary.created_at;
-                enqueue_write(
-                    state,
                     room,
-                    WriteOpKind::InsertCompletedPenStroke {
-                        board_id: board_id.clone(),
-                        stroke: summary,
-                        action_id,
-                        created_at,
-                    },
-                );
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
+                    state,
+                    client_id,
+                    guest_id,
+                    role,
                 };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PenTextSet {
-            id,
-            board_id,
-            text_id,
-            x,
-            y,
-            text,
-            font_size,
-            color,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let now = now_ms();
-            let pt = crate::proto::PenText {
-                id: text_id.clone(),
-                x,
-                y,
-                text: text.clone(),
-                font_size,
-                color: color.clone(),
-                updated_at: now,
+                crate::intents::pen::handle(&mut ctx, msg).await
             };
-            if let Some((action_id, prior)) = room.pen_text_upsert(&board_id, pt.clone(), now) {
-                broadcast_pen_text_upserted(room, &board_id, &pt);
-                let before_json = prior.as_ref().and_then(|p| serde_json::to_string(p).ok());
-                enqueue_write(
-                    state,
-                    room,
-                    WriteOpKind::UpsertPenText {
-                        board_id: board_id.clone(),
-                        text: pt,
-                        action_id,
-                        before_json,
-                        created_at: now,
-                    },
-                );
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PenTextDelete {
-            id,
-            board_id,
-            text_id,
-            ..
-        } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let now = now_ms();
-            if let Some((action_id, removed)) = room.pen_text_delete(&board_id, &text_id, now) {
-                broadcast_pen_text_deleted(room, &board_id, &text_id);
-                // before_json captures the row we just removed so
-                // PenUndo can restore it. Fall back to "null" only on
-                // serializer error — apply_pen_undo treats that as "no
-                // prior state" and skips the restore, matching the
-                // semantics of an undo whose row never persisted.
-                let before_json =
-                    serde_json::to_string(&removed).unwrap_or_else(|_| "null".to_string());
-                enqueue_write(
-                    state,
-                    room,
-                    WriteOpKind::DeletePenText {
-                        board_id: board_id.clone(),
-                        text_id: text_id.clone(),
-                        action_id,
-                        before_json,
-                        created_at: now,
-                    },
-                );
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PenClear { id, board_id, .. } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            let now = now_ms();
-            if let Some((action_id, prior_strokes, prior_texts)) = room.pen_clear(&board_id, now) {
-                broadcast_pen_cleared(room, &board_id);
-                let prior_stroke_summaries: Vec<crate::proto::PenStrokeSummary> = prior_strokes
-                    .into_iter()
-                    .map(|s| crate::proto::PenStrokeSummary {
-                        id: s.id,
-                        color: s.color,
-                        size: s.size,
-                        points: s.points,
-                        created_at: s.created_at,
-                        ord: s.ord,
-                    })
-                    .collect();
-                let before_strokes_json = serde_json::to_string(&prior_stroke_summaries)
-                    .unwrap_or_else(|_| "[]".to_string());
-                let before_texts_json =
-                    serde_json::to_string(&prior_texts).unwrap_or_else(|_| "[]".to_string());
-                enqueue_write(
-                    state,
-                    room,
-                    WriteOpKind::PenClear {
-                        board_id: board_id.clone(),
-                        action_id,
-                        before_strokes_json,
-                        before_texts_json,
-                        created_at: now,
-                    },
-                );
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
-        }
-        ClientMsg::PenUndo { id, board_id, .. } => {
-            if role != Role::Host {
-                let _ = send(
-                    sink,
-                    &error_frame(error_codes::FORBIDDEN, "admin only", id, room.current_seq()),
-                )
-                .await;
-                return Ok(());
-            }
-            if let Some(outcome) = room.pen_undo(&board_id) {
-                broadcast_pen_undone(
-                    room,
-                    &board_id,
-                    outcome.removed_stroke.clone(),
-                    outcome.removed_text.clone(),
-                );
-                enqueue_write(
-                    state,
-                    room,
-                    WriteOpKind::PenUndo {
-                        board_id: board_id.clone(),
-                        target_action_id: outcome.action_id,
-                    },
-                );
-            }
-            if let Some(rid) = id {
-                let ack = ServerMsg::Ack {
-                    v: PROTOCOL_VERSION,
-                    ts: now_ms(),
-                    seq: room.current_seq(),
-                    ref_id: rid,
-                };
-                let _ = send(sink, &ack).await;
-            }
-            Ok(())
+            handle_intent_result(sink, result).await
         }
         ClientMsg::Cursor {
             id, board_id, x, y, ..
