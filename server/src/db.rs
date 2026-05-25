@@ -16,6 +16,8 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
 
+use crate::proto::Topic;
+
 mod embedded {
     refinery::embed_migrations!("./migrations");
 }
@@ -201,6 +203,27 @@ impl Db {
             Err(e) => Err(e.into()),
         }
     }
+}
+
+// ──────────────────────── WriteOp envelope ────────────────────────
+//
+// See `.plan/2026-05-25-followup/persistence.md` §3 for the canonical
+// exhaustive list. New state-changing intents add a `WriteOpKind`
+// variant here **before** any writer arm or handler is wired.
+
+/// One state-changing intent enqueued by an ws/http handler. Applied by
+/// the single writer task (`server/src/writer.rs`).
+#[derive(Debug, Clone)]
+pub struct WriteOp {
+    pub room_id: String,
+    pub kind: WriteOpKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum WriteOpKind {
+    /// Insert or update a topic row. F1.3 will add the rest of the topic
+    /// mutations (rename, move, set status, delete, set-active).
+    UpsertTopic { topic: Topic },
 }
 
 fn configure_connection(conn: &mut Connection) -> rusqlite::Result<()> {
