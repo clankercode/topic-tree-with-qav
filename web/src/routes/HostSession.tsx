@@ -2,14 +2,11 @@ import { useEffect, useState, useRef } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { ActiveTopicBadge } from "../components/ActiveTopicBadge";
 import { AdminBanner } from "../components/AdminBanner";
-import { BoardPanel } from "../components/BoardPanel";
 import { ConnectionBanner } from "../components/ConnectionBanner";
 import { PresenceIndicator } from "../components/PresenceIndicator";
 import { PresenceMenu } from "../components/PresenceMenu";
-import { QAPanel } from "../components/QAPanel";
+import { RoomSessionTabs } from "../components/RoomSessionTabs";
 import { ThemeToggle } from "../components/ThemeToggle";
-import { TopicTree } from "../components/TopicTree";
-import { HandsQueue } from "../components/HandsQueue";
 import { getRoom, type RoomRecord } from "../lib/idb";
 import { setWsClient, sendWsMsg } from "../ws/manager";
 import { useSessionStore } from "../store";
@@ -165,8 +162,8 @@ export function HostSession() {
     <>
       <ConnectionBanner />
       <main data-testid="host-shell" className="min-h-full p-6">
-        <div className="mx-auto max-w-5xl space-y-4">
-          <header className="flex items-center justify-between gap-4">
+        <div className="mx-auto space-y-4">
+          <header className="mx-auto flex max-w-5xl items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight">
@@ -289,28 +286,18 @@ export function HostSession() {
               <PresenceIndicator />
             </div>
           </header>
-          <AdminBanner
-            joinUrl={joinUrl}
-            adminUrl={adminUrl}
-            roomId={roomId}
-          />
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="flex flex-col gap-4">
-              <TopicTree />
-              <section
-                aria-label="Raised hands queue"
-                className="rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] p-4"
-              >
-                <HandsQueue />
-              </section>
-            </div>
-            <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))]">
-              <QAPanel sortMode={sortMode} onSortChange={setSortMode} />
-            </section>
+          <div className="mx-auto max-w-5xl">
+            <AdminBanner
+              joinUrl={joinUrl}
+              adminUrl={adminUrl}
+              roomId={roomId}
+            />
           </div>
-          <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] overflow-hidden">
-            <BoardPanel />
-          </section>
+          <RoomSessionTabs
+            sortMode={sortMode}
+            onSortChange={setSortMode}
+            showHandsQueue={true}
+          />
         </div>
       </main>
     </>

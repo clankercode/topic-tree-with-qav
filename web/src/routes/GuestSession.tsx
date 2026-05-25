@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
-import { BoardPanel } from "../components/BoardPanel";
 import { ConnectionBanner } from "../components/ConnectionBanner";
 import { PresenceIndicator } from "../components/PresenceIndicator";
-import { QAPanel } from "../components/QAPanel";
 import { RaiseHandButton } from "../components/RaiseHandButton";
+import { RoomSessionTabs } from "../components/RoomSessionTabs";
 import { ThemeToggle } from "../components/ThemeToggle";
-import { TopicTree } from "../components/TopicTree";
 import { getRoom } from "../lib/idb";
 import { getPreviewGuest } from "../lib/previewGuest";
 import { setWsClient } from "../ws/manager";
@@ -163,8 +161,8 @@ export function GuestSession({ preview = false }: GuestSessionProps) {
         </div>
       ) : null}
       <main data-testid="guest-shell" className="min-h-full p-6">
-        <div className="mx-auto max-w-5xl space-y-4">
-          <header className="flex items-center justify-between gap-4">
+        <div className="mx-auto space-y-4">
+          <header className="mx-auto flex max-w-5xl items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">
                 {view.title}
@@ -179,15 +177,11 @@ export function GuestSession({ preview = false }: GuestSessionProps) {
               <PresenceIndicator />
             </div>
           </header>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <TopicTree />
-            <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))]">
-              <QAPanel sortMode={sortMode} onSortChange={setSortMode} />
-            </section>
-          </div>
-          <section className="flex max-h-[600px] min-h-[400px] flex-col rounded border border-[rgb(var(--border))] bg-[rgb(var(--surface))] overflow-hidden">
-            <BoardPanel />
-          </section>
+          <RoomSessionTabs
+            sortMode={sortMode}
+            onSortChange={setSortMode}
+            showHandsQueue={false}
+          />
         </div>
       </main>
     </>

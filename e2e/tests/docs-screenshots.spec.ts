@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { goToWhiteboardsTab } from "../utils/roomTabs";
 
 // Docs screenshots live outside `screenshots/` so they are not
 // subject to the paired-light/dark constraint enforced by
@@ -77,11 +78,12 @@ test.describe("docs screenshots", () => {
     await page.getByRole("button", { name: "Create room" }).click();
     await page.waitForURL(/\/r\/.*\/host/);
 
+    await goToWhiteboardsTab(page);
     await page.getByRole("button", { name: "Create Board" }).click();
     await page.getByRole("button", { name: "Pen" }).click();
     await page.getByRole("button", { name: "Create", exact: true }).click();
 
-    const boardPanel = page.locator(".flex.flex-col.h-full").last();
+    const boardPanel = page.getByTestId("room-panel-whiteboards");
     await expect(boardPanel.locator("canvas")).toBeVisible({ timeout: 10_000 });
 
     const canvas = boardPanel.locator("canvas");
@@ -102,12 +104,15 @@ test.describe("docs screenshots", () => {
     await page.getByRole("button", { name: "Create room" }).click();
     await page.waitForURL(/\/r\/.*\/host/);
 
+    await goToWhiteboardsTab(page);
     await page.getByRole("button", { name: "Create Board" }).click();
     await page.getByRole("button", { name: "Excalidraw" }).click();
     await page.getByRole("button", { name: "Create", exact: true }).click();
 
-    const excanvas = page.locator(".excalidraw-body").first();
-    await expect(excanvas).toBeVisible({ timeout: 15_000 });
+    const boardPanel = page.getByTestId("room-panel-whiteboards");
+    await expect(
+      boardPanel.getByRole("radio", { name: /Selection/ }),
+    ).toBeVisible({ timeout: 15_000 });
 
     await page.screenshot({ path: `${OUT_DIR}/excalidraw-board.png` });
   });
@@ -131,8 +136,9 @@ test.describe("docs screenshots", () => {
     await guest1Page.getByRole("button", { name: "Join" }).click();
     await guest1Page.waitForURL(`/r/${roomId}/guest`);
     await guest1Page.getByRole("button", { name: "Raise hand" }).click();
-    await guest1Page.locator(".fixed.inset-0.z-50 input[type='text']").fill("Question one");
-    await guest1Page.getByRole("button", { name: "Raise hand" }).click();
+    const guest1Dialog = guest1Page.locator(".fixed.inset-0.z-50");
+    await guest1Dialog.locator('input[type="text"]').fill("Question one");
+    await guest1Dialog.getByRole("button", { name: "Raise hand" }).click();
 
     const guest2Context = await browser.newContext();
     const guest2Page = await guest2Context.newPage();
@@ -141,8 +147,16 @@ test.describe("docs screenshots", () => {
     await guest2Page.getByRole("button", { name: "Join" }).click();
     await guest2Page.waitForURL(`/r/${roomId}/guest`);
     await guest2Page.getByRole("button", { name: "Raise hand" }).click();
-    await guest2Page.locator(".fixed.inset-0.z-50 input[type='text']").fill("Question two");
-    await guest2Page.getByRole("button", { name: "Raise hand" }).click();
+    const guest2Dialog = guest2Page.locator(".fixed.inset-0.z-50");
+    await guest2Dialog.locator('input[type="text"]').fill("Question two");
+    await guest2Dialog.getByRole("button", { name: "Raise hand" }).click();
+
+    await expect(hostPage.getByText("Question one")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(hostPage.getByText("Question two")).toBeVisible({
+      timeout: 10_000,
+    });
 
     await hostPage.screenshot({ path: `${OUT_DIR}/raise-hand-queue.png` });
 

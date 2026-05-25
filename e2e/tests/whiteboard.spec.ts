@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { goToWhiteboardsTab } from "../utils/roomTabs";
 
 test.describe("pen whiteboard", () => {
   test("host can create a pen board and draw a stroke", async ({ page }) => {
@@ -7,11 +8,12 @@ test.describe("pen whiteboard", () => {
     await page.getByRole("button", { name: "Create room" }).click();
     await page.waitForURL(/\/r\/.*\/host/);
 
+    await goToWhiteboardsTab(page);
     await page.getByRole("button", { name: "Create Board" }).click();
     await page.getByRole("button", { name: "Pen" }).click();
     await page.getByRole("button", { name: "Create", exact: true }).click();
 
-    const boardPanel = page.locator(".flex.flex-col.h-full").last();
+    const boardPanel = page.getByTestId("room-panel-whiteboards");
     await expect(boardPanel.locator("canvas")).toBeVisible();
 
     const canvas = boardPanel.locator("canvas");
@@ -38,6 +40,7 @@ test.describe("pen whiteboard", () => {
     const roomId = url.match(/\/r\/([^/]+)\/host/)?.[1];
     expect(roomId).toBeDefined();
 
+    await goToWhiteboardsTab(hostPage);
     await hostPage.getByRole("button", { name: "Create Board" }).click();
     await hostPage.getByRole("button", { name: "Pen" }).click();
     await hostPage.getByRole("button", { name: "Create", exact: true }).click();
@@ -50,7 +53,8 @@ test.describe("pen whiteboard", () => {
     await guestPage.getByRole("button", { name: "Join" }).click();
     await guestPage.waitForURL(`/r/${roomId}/guest`);
 
-    const boardPanel = guestPage.locator(".flex.flex-col.h-full").last();
+    await goToWhiteboardsTab(guestPage);
+    const boardPanel = guestPage.getByTestId("room-panel-whiteboards");
     await expect(boardPanel.locator("canvas")).toBeVisible({ timeout: 10_000 });
 
     await hostContext.close();

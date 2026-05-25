@@ -68,13 +68,11 @@ describe("HandsQueue", () => {
   });
 });
 
-describe("HostSession sidebar wires HandsQueue", () => {
-  it("renders HandsQueue under the topic tree column", async () => {
-    // Sanity: assert the wiring at the route level. We do a lighter
-    // import-existence check rather than a full route render to keep
-    // this test independent of router/websocket setup.
-    const src = await import("../../src/routes/HostSession");
-    const code = src.HostSession.toString();
+describe("RoomSessionTabs wires HandsQueue for host layout", () => {
+  it("renders HandsQueue when showHandsQueue is enabled", async () => {
+    const src = await import("../../src/components/RoomSessionTabs");
+    const code = src.RoomSessionTabs.toString();
     expect(code).toContain("HandsQueue");
+    expect(code).toContain("showHandsQueue");
   });
 });
