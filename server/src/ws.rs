@@ -636,7 +636,6 @@ async fn handle_text(
         .await;
         return Err("kicked".into());
     }
-    #[allow(clippy::needless_borrow)]
     match msg {
         ClientMsg::Hello { id, .. } => {
             let _ = send(
@@ -651,11 +650,8 @@ async fn handle_text(
             .await;
             Ok(())
         }
-        ClientMsg::SetDisplayName { .. }
-        | ClientMsg::GetSnapshot { .. }
-        | ClientMsg::SetFocusedBoard { .. }
-        | ClientMsg::Cursor { .. }
-        | ClientMsg::Click { .. } => {
+        ClientMsg::Pong { .. } => Ok(()),
+        msg => {
             let result = {
                 let mut ctx = SessionCtx {
                     sink,
@@ -665,117 +661,53 @@ async fn handle_text(
                     guest_id,
                     role,
                 };
-                crate::intents::presence::handle(&mut ctx, msg).await
+                dispatch_intent(&mut ctx, msg).await
             };
             handle_intent_result(sink, result).await
         }
-        ClientMsg::Pong { .. } => Ok(()),
+    }
+}
+
+async fn dispatch_intent(ctx: &mut SessionCtx<'_>, msg: ClientMsg) -> Result<(), IntentError> {
+    match msg {
+        ClientMsg::SetDisplayName { .. }
+        | ClientMsg::GetSnapshot { .. }
+        | ClientMsg::SetFocusedBoard { .. }
+        | ClientMsg::Cursor { .. }
+        | ClientMsg::Click { .. } => crate::intents::presence::handle(ctx, msg).await,
         ClientMsg::AddTopic { .. }
         | ClientMsg::RenameTopic { .. }
         | ClientMsg::MoveTopic { .. }
         | ClientMsg::DeleteTopic { .. }
         | ClientMsg::SetActiveTopic { .. }
         | ClientMsg::MarkTopicDone { .. }
-        | ClientMsg::ImportTopicTree { .. } => {
-            let result = {
-                let mut ctx = SessionCtx {
-                    sink,
-                    room,
-                    state,
-                    client_id,
-                    guest_id,
-                    role,
-                };
-                crate::intents::topics::handle(&mut ctx, msg).await
-            };
-            handle_intent_result(sink, result).await
-        }
+        | ClientMsg::ImportTopicTree { .. } => crate::intents::topics::handle(ctx, msg).await,
         ClientMsg::SubmitQuestion { .. }
         | ClientMsg::VoteQuestion { .. }
         | ClientMsg::MarkQuestionAnswered { .. }
         | ClientMsg::DeleteQuestion { .. }
         | ClientMsg::PromoteQuestionToTopic { .. } => {
-            let result = {
-                let mut ctx = SessionCtx {
-                    sink,
-                    room,
-                    state,
-                    client_id,
-                    guest_id,
-                    role,
-                };
-                crate::intents::questions::handle(&mut ctx, msg).await
-            };
-            handle_intent_result(sink, result).await
+            crate::intents::questions::handle(ctx, msg).await
         }
         ClientMsg::KickGuest { .. } | ClientMsg::MuteGuest { .. } => {
-            let result = {
-                let mut ctx = SessionCtx {
-                    sink,
-                    room,
-                    state,
-                    client_id,
-                    guest_id,
-                    role,
-                };
-                crate::intents::moderation::handle(&mut ctx, msg).await
-            };
-            handle_intent_result(sink, result).await
+            crate::intents::moderation::handle(ctx, msg).await
         }
         ClientMsg::CreateBoard { .. }
         | ClientMsg::RenameBoard { .. }
         | ClientMsg::DeleteBoard { .. }
-        | ClientMsg::ExcalidrawUpdate { .. } => {
-            let result = {
-                let mut ctx = SessionCtx {
-                    sink,
-                    room,
-                    state,
-                    client_id,
-                    guest_id,
-                    role,
-                };
-                crate::intents::excalidraw::handle(&mut ctx, msg).await
-            };
-            handle_intent_result(sink, result).await
-        }
+        | ClientMsg::ExcalidrawUpdate { .. } => crate::intents::excalidraw::handle(ctx, msg).await,
         ClientMsg::RaiseHand { .. }
         | ClientMsg::LowerHand { .. }
         | ClientMsg::CallOnHand { .. }
-        | ClientMsg::DismissHand { .. } => {
-            let result = {
-                let mut ctx = SessionCtx {
-                    sink,
-                    room,
-                    state,
-                    client_id,
-                    guest_id,
-                    role,
-                };
-                crate::intents::raise_hand::handle(&mut ctx, msg).await
-            };
-            handle_intent_result(sink, result).await
-        }
+        | ClientMsg::DismissHand { .. } => crate::intents::raise_hand::handle(ctx, msg).await,
         ClientMsg::PenStrokeBegin { .. }
         | ClientMsg::PenStrokeAppend { .. }
         | ClientMsg::PenStrokeEnd { .. }
         | ClientMsg::PenTextSet { .. }
         | ClientMsg::PenTextDelete { .. }
         | ClientMsg::PenClear { .. }
-        | ClientMsg::PenUndo { .. } => {
-            let result = {
-                let mut ctx = SessionCtx {
-                    sink,
-                    room,
-                    state,
-                    client_id,
-                    guest_id,
-                    role,
-                };
-                crate::intents::pen::handle(&mut ctx, msg).await
-            };
-            handle_intent_result(sink, result).await
-        }
+        | ClientMsg::PenUndo { .. } => crate::intents::pen::handle(ctx, msg).await,
+        ClientMsg::Hello { .. } | ClientMsg::Pong { .. } => unreachable!("lifecycle intent"),
     }
 }
 
@@ -788,13 +720,16 @@ async fn handle_intent_result(
         Err(err) => {
             let should_close = err.should_close();
             let err_text = err.to_string();
-            if let Some(msg) = err.into_server_msg() {
-                send(sink, &msg).await?;
-            }
-            if should_close {
-                Err(err_text)
-            } else {
-                Ok(())
+            match err.into_server_msg() {
+                Some(msg) => {
+                    send(sink, &msg).await?;
+                    if should_close {
+                        Err(err_text)
+                    } else {
+                        Ok(())
+                    }
+                }
+                None => Err(err_text),
             }
         }
     }
