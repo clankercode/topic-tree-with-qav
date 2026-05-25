@@ -30,6 +30,7 @@ pub const MAX_RAISE_HAND_TOPIC_LEN: usize = 80;
 pub const MAX_IMPORT_TOPICS: usize = 500;
 pub const MAX_IMPORT_DEPTH: usize = 10;
 pub const MAX_TOPIC_TITLE_LEN: usize = 200;
+pub const MAX_TOPICS_PER_ROOM: usize = 5000;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ImportValidationError {

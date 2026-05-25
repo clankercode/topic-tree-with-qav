@@ -9,6 +9,8 @@ use std::time::Duration;
 
 use common::{await_until, host_hello, read_topics_for_test, TestApp};
 
+const ROOM_TOPIC_LIMIT: usize = 5000;
+
 #[tokio::test]
 async fn set_active_topic_marks_previous_active_as_done() {
     let app = TestApp::spawn().await;
@@ -221,6 +223,96 @@ async fn import_topic_tree_rejects_empty_payload() {
     );
 }
 
+#[tokio::test]
+async fn import_topic_tree_rejects_when_room_topic_cap_would_be_exceeded() {
+    let app = TestApp::spawn().await;
+    let room = app.create_room(None).await;
+    seed_room_topics(&app.db, &room.room_id, ROOM_TOPIC_LIMIT);
+
+    let mut host = app.connect_ws(&room.room_id).await;
+    host.send_json(&host_hello("h", "Host", &room.admin_token))
+        .await;
+    let _ = host
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Welcome")
+        .await;
+
+    host.send_json(&serde_json::json!({
+        "type": "ImportTopicTree",
+        "v": 1,
+        "id": "imp-over-room-cap",
+        "topics": [{ "title": "One too many", "children": [] }],
+    }))
+    .await;
+
+    let err = host
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Error")
+        .await;
+    assert_eq!(err["refId"], "imp-over-room-cap");
+    assert_eq!(err["code"], "bad_request");
+    assert!(
+        err["message"].as_str().unwrap_or("").contains("5000"),
+        "error message should call out the room cap; got {err}"
+    );
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let rows = read_topics_for_test(&app.db, &room.room_id);
+    assert_eq!(
+        rows.len(),
+        ROOM_TOPIC_LIMIT,
+        "rejected import must not persist any additional topics"
+    );
+}
+
+#[tokio::test]
+async fn import_topic_tree_rate_limits_rapid_replays() {
+    let app = TestApp::spawn().await;
+    let room = app.create_room(None).await;
+    let mut host = app.connect_ws(&room.room_id).await;
+    host.send_json(&host_hello("h", "Host", &room.admin_token))
+        .await;
+    let _ = host
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Welcome")
+        .await;
+
+    host.send_json(&serde_json::json!({
+        "type": "ImportTopicTree",
+        "v": 1,
+        "id": "imp-rate-1",
+        "topics": [{ "title": "First import", "children": [] }],
+    }))
+    .await;
+    let _ = host
+        .await_msg(Duration::from_secs(2), |v| {
+            v["type"] == "Ack" && v["refId"] == "imp-rate-1"
+        })
+        .await;
+
+    host.send_json(&serde_json::json!({
+        "type": "ImportTopicTree",
+        "v": 1,
+        "id": "imp-rate-2",
+        "topics": [{ "title": "Second import", "children": [] }],
+    }))
+    .await;
+    let err = host
+        .await_msg(Duration::from_secs(2), |v| v["type"] == "Error")
+        .await;
+    assert_eq!(err["refId"], "imp-rate-2");
+    assert_eq!(err["code"], "rate_limit");
+
+    let db_for_poll = app.db.clone();
+    let room_id_for_poll = room.room_id.clone();
+    await_until(
+        "first imported topic to commit",
+        Duration::from_secs(2),
+        || read_topics_for_test(&db_for_poll, &room_id_for_poll).len() == 1,
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let rows = read_topics_for_test(&app.db, &room.room_id);
+    assert_eq!(rows.len(), 1, "rate-limited import must not be persisted");
+}
+
 /// Regression: a host attempting `AddTopic` with a parent_id that
 /// points at no known topic must be rejected with `bad_request`
 /// *before* the in-memory mutation or writer enqueue. Without this,
@@ -262,4 +354,27 @@ async fn add_topic_with_unknown_parent_rejects_before_mutate() {
         rows.is_empty(),
         "no topic should have been persisted; got {rows:?}"
     );
+}
+
+fn seed_room_topics(db: &server::Db, room_id: &str, count: usize) {
+    let mut conn = db.get().expect("checkout");
+    let tx = conn.transaction().expect("begin seed topics");
+    {
+        let mut stmt = tx
+            .prepare(
+                "INSERT INTO topics (id, room_id, parent_id, title, ord, status, created_at) \
+                 VALUES (?1, ?2, NULL, ?3, ?4, 'pending', 0)",
+            )
+            .expect("prepare seed topics");
+        for i in 0..count {
+            stmt.execute(rusqlite::params![
+                format!("seed-topic-{i}"),
+                room_id,
+                format!("Seed topic {i}"),
+                i as f64,
+            ])
+            .expect("insert seed topic");
+        }
+    }
+    tx.commit().expect("commit seed topics");
 }

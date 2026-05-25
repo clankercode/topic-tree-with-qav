@@ -6,6 +6,14 @@ use crate::intents::helpers::{
     ack_if_id, broadcast_topic_tree, enqueue_write, ensure_host, IntentError, SessionCtx,
 };
 use crate::proto::{error_codes, ClientMsg, ImportedTopicNode, Topic, TopicStatus};
+use crate::rate_limit::Quota;
+use crate::state::global_rate_limiter;
+
+const IMPORT_TOPIC_TREE_QUOTA: Quota = Quota {
+    // One immediate import, then one refill every ten seconds (6/min).
+    capacity: 1.0,
+    refill_per_sec: 0.1,
+};
 
 pub(crate) async fn handle(ctx: &mut SessionCtx<'_>, msg: ClientMsg) -> Result<(), IntentError> {
     match msg {
@@ -300,6 +308,14 @@ async fn import_topic_tree(
     imported: Vec<ImportedTopicNode>,
 ) -> Result<(), IntentError> {
     ensure_host(ctx, id.as_deref())?;
+    if !global_rate_limiter().check(ctx.client_id, "ImportTopicTree", IMPORT_TOPIC_TREE_QUOTA) {
+        return Err(client_error(
+            ctx,
+            error_codes::RATE_LIMIT,
+            "too many imports, slow down",
+            id.as_deref(),
+        ));
+    }
     if let Err(e) = crate::validation::validate_imported_topics(&imported) {
         return Err(client_error(
             ctx,
@@ -332,6 +348,17 @@ async fn import_topic_tree(
     };
     let mut flat: Vec<Topic> = Vec::new();
     flatten(&imported, parent_topic_id.clone(), base_ord, now, &mut flat);
+    if known_topics.len().saturating_add(flat.len()) > crate::validation::MAX_TOPICS_PER_ROOM {
+        return Err(client_error(
+            ctx,
+            error_codes::BAD_REQUEST,
+            format!(
+                "room topic limit exceeded; max is {}",
+                crate::validation::MAX_TOPICS_PER_ROOM
+            ),
+            id.as_deref(),
+        ));
+    }
     ctx.room.add_topics_bulk(flat.clone());
     broadcast_topic_tree(ctx.room);
     enqueue_write(

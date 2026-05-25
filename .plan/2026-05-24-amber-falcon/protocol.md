@@ -64,6 +64,7 @@ Boards inside `RoomSnapshot.boards` are *fat*: a Pen board carries its `strokes`
 | `RenameTopic` | `{topicId, title}` | admin |
 | `MoveTopic` | `{topicId, newParentId?, afterId?}` | admin |
 | `DeleteTopic` | `{topicId}` | admin |
+| `ImportTopicTree` | `{parentTopicId?, topics}` | admin |
 | `SetActiveTopic` | `{topicId\|null}` | admin |
 | `MarkTopicDone` | `{topicId, done:bool}` | admin |
 | `MarkQuestionAnswered` | `{questionId, answered:bool}` | admin |
@@ -168,6 +169,7 @@ type RoomSnapshot = {
 | `SubmitQuestion` | 6 msg/min |
 | `VoteQuestion` | 30 msg/min |
 | `RaiseHand` | 2 msg/min (lower → raise → lower → raise spam guard) |
+| `ImportTopicTree` | 6 msg/min with a 1-message burst |
 | All others | 20 msg/s blanket |
 
 Exceeding sustained limit → `Error{code:"rate_limit"}` and the offending message is dropped.
