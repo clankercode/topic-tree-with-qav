@@ -307,6 +307,55 @@ pub fn read_boards_for_test(
     .expect("collect")
 }
 
+pub fn read_pen_strokes_for_test(
+    db: &server::Db,
+    board_id: &str,
+) -> Vec<(String, String, f64, String, i64)> {
+    let conn = db.get().expect("checkout");
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, color, size, points_json, ord FROM pen_strokes \
+             WHERE board_id = ?1 ORDER BY ord",
+        )
+        .expect("prepare");
+    stmt.query_map([board_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, f64>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, i64>(4)?,
+        ))
+    })
+    .expect("query")
+    .collect::<Result<Vec<_>, _>>()
+    .expect("collect")
+}
+
+pub fn read_pen_actions_for_test(
+    db: &server::Db,
+    board_id: &str,
+) -> Vec<(String, String, Option<String>, Option<String>)> {
+    let conn = db.get().expect("checkout");
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, kind, target_id, payload_json FROM pen_actions \
+             WHERE board_id = ?1 ORDER BY ord",
+        )
+        .expect("prepare");
+    stmt.query_map([board_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, Option<String>>(2)?,
+            r.get::<_, Option<String>>(3)?,
+        ))
+    })
+    .expect("query")
+    .collect::<Result<Vec<_>, _>>()
+    .expect("collect")
+}
+
 /// Poll a closure until it returns true, or panic after `max_wait`.
 /// Useful for waiting on the async writer task to commit a batch.
 pub async fn await_until<F>(label: &str, max_wait: std::time::Duration, mut check: F)

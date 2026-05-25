@@ -72,6 +72,19 @@ pub struct PenAction {
     pub created_at: i64,
 }
 
+/// Outcome of a `pen_undo` call. `action_id` is the id of the popped
+/// `pen_actions` row — used by the writer's `PenUndo` op to locate
+/// the persisted state and apply the inverse. `removed_stroke` /
+/// `removed_text` are populated only for the stroke_begin / text_set
+/// undo paths where in-memory state shrinks; for text_delete / clear
+/// the in-memory state stays empty until rehydration.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PenUndoOutcome {
+    pub action_id: String,
+    pub removed_stroke: Option<StrokeId>,
+    pub removed_text: Option<TextId>,
+}
+
 #[derive(Debug, Clone)]
 pub struct PresenceEntry {
     pub guest_id: GuestId,
@@ -766,102 +779,160 @@ impl Room {
         true
     }
 
-    pub fn pen_end_stroke(&self, board_id: &str, stroke_id: &str) -> bool {
+    /// Finalize a stroke and return the snapshot the persistence layer
+    /// needs (summary + the matching StrokeBegin action_id, which the
+    /// writer will record on the `pen_actions` row and reuse for
+    /// PenUndo lookups).
+    pub fn pen_end_stroke(
+        &self,
+        board_id: &str,
+        stroke_id: &str,
+    ) -> Option<(crate::proto::PenStrokeSummary, String)> {
         let mut g = self.inner.lock().expect("room inner");
-        let state = match g.pen_boards.get_mut(board_id) {
-            Some(s) => s,
-            None => return false,
+        let state = g.pen_boards.get_mut(board_id)?;
+        let idx = state.strokes.iter().position(|s| s.id == stroke_id)?;
+        state.strokes[idx].ord = state.next_stroke_ord;
+        state.next_stroke_ord += 1;
+        let s = &state.strokes[idx];
+        let summary = crate::proto::PenStrokeSummary {
+            id: s.id.clone(),
+            color: s.color.clone(),
+            size: s.size,
+            points: s.points.clone(),
+            created_at: s.created_at,
+            ord: s.ord,
         };
-        if let Some(idx) = state.strokes.iter().position(|s| s.id == stroke_id) {
-            state.strokes[idx].ord = state.next_stroke_ord;
-            state.next_stroke_ord += 1;
-            true
-        } else {
-            false
-        }
+        let action_id = state
+            .action_log
+            .iter()
+            .rev()
+            .find(|a| {
+                a.kind == PenActionKind::StrokeBegin
+                    && a.target_id.as_deref() == Some(stroke_id)
+            })
+            .map(|a| a.id.clone())?;
+        Some((summary, action_id))
     }
 
-    pub fn pen_text_upsert(&self, board_id: &str, text: crate::proto::PenText, now: i64) -> bool {
+    /// Upsert a pen text. Returns `(action_id, prior)` so the writer
+    /// can persist the new row and record the prior state in
+    /// `pen_actions.payload_json` for durable undo.
+    pub fn pen_text_upsert(
+        &self,
+        board_id: &str,
+        text: crate::proto::PenText,
+        now: i64,
+    ) -> Option<(String, Option<crate::proto::PenText>)> {
         let mut g = self.inner.lock().expect("room inner");
-        let state = match g.pen_boards.get_mut(board_id) {
-            Some(s) => s,
-            None => return false,
-        };
+        let state = g.pen_boards.get_mut(board_id)?;
         let text_id = text.id.clone();
+        let prior = state
+            .texts
+            .iter()
+            .find(|t| t.id == text.id)
+            .cloned();
         if let Some(idx) = state.texts.iter().position(|t| t.id == text.id) {
             state.texts[idx] = text;
         } else {
             state.texts.push(text);
         }
+        let action_id = uuid::Uuid::new_v4().to_string();
         let action = PenAction {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: action_id.clone(),
             kind: PenActionKind::TextSet,
             target_id: Some(text_id),
             ord: state.action_log.len() as u32 + 1,
             created_at: now,
         };
         state.action_log.push(action);
-        true
+        Some((action_id, prior))
     }
 
-    pub fn pen_text_delete(&self, board_id: &str, text_id: &str, now: i64) -> bool {
+    /// Remove a pen text. Returns `(action_id, removed)` so the writer
+    /// can stash the deleted text in `payload_json` for undo.
+    pub fn pen_text_delete(
+        &self,
+        board_id: &str,
+        text_id: &str,
+        now: i64,
+    ) -> Option<(String, crate::proto::PenText)> {
         let mut g = self.inner.lock().expect("room inner");
-        let state = match g.pen_boards.get_mut(board_id) {
-            Some(s) => s,
-            None => return false,
-        };
-        let pos = state.texts.iter().position(|t| t.id == text_id);
-        if pos.is_none() {
-            return false;
-        }
-        let removed = state.texts.remove(pos.unwrap());
+        let state = g.pen_boards.get_mut(board_id)?;
+        let pos = state.texts.iter().position(|t| t.id == text_id)?;
+        let removed = state.texts.remove(pos);
+        let action_id = uuid::Uuid::new_v4().to_string();
         let action = PenAction {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: action_id.clone(),
             kind: PenActionKind::TextDelete,
-            target_id: Some(removed.id),
+            target_id: Some(removed.id.clone()),
             ord: state.action_log.len() as u32 + 1,
             created_at: now,
         };
         state.action_log.push(action);
-        true
+        Some((action_id, removed))
     }
 
-    pub fn pen_clear(&self, board_id: &str, now: i64) -> bool {
+    /// Clear all strokes + texts on a board. Returns
+    /// `(action_id, prior_strokes, prior_texts)` so the writer can
+    /// pack them into `payload_json` for undo.
+    pub fn pen_clear(
+        &self,
+        board_id: &str,
+        now: i64,
+    ) -> Option<(String, Vec<PenStroke>, Vec<crate::proto::PenText>)> {
         let mut g = self.inner.lock().expect("room inner");
-        let state = match g.pen_boards.get_mut(board_id) {
-            Some(s) => s,
-            None => return false,
-        };
-        state.strokes.clear();
-        state.texts.clear();
+        let state = g.pen_boards.get_mut(board_id)?;
+        let strokes = std::mem::take(&mut state.strokes);
+        let texts = std::mem::take(&mut state.texts);
+        let action_id = uuid::Uuid::new_v4().to_string();
         let action = PenAction {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: action_id.clone(),
             kind: PenActionKind::Clear,
             target_id: None,
             ord: state.action_log.len() as u32 + 1,
             created_at: now,
         };
         state.action_log.push(action);
-        true
+        Some((action_id, strokes, texts))
     }
 
-    pub fn pen_undo(&self, board_id: &str) -> Option<(Option<StrokeId>, Option<TextId>)> {
+    /// Pop the most recent action. Returns `Some(outcome)` carrying
+    /// the popped action_id (so the writer can locate the
+    /// `pen_actions` row and reverse it) and, for stroke_begin /
+    /// text_set actions, the id of the in-memory stroke/text the
+    /// caller should broadcast as removed. For text_delete / clear
+    /// undos the writer rehydrates the in-memory state from
+    /// `payload_json` on next process boot — see persistence.md
+    /// §PenUndo limitations.
+    pub fn pen_undo(&self, board_id: &str) -> Option<PenUndoOutcome> {
         let mut g = self.inner.lock().expect("room inner");
         let state = g.pen_boards.get_mut(board_id)?;
         let action = state.action_log.pop()?;
+        let mut removed_stroke = None;
+        let mut removed_text = None;
         match action.kind {
             PenActionKind::StrokeBegin => {
-                let stroke_id = action.target_id?;
-                state.strokes.retain(|s| s.id != stroke_id);
-                Some((Some(stroke_id), None))
+                if let Some(sid) = action.target_id.as_ref() {
+                    state.strokes.retain(|s| &s.id != sid);
+                    removed_stroke = action.target_id.clone();
+                }
             }
             PenActionKind::TextSet => {
-                let text_id = action.target_id?;
-                state.texts.retain(|t| t.id != text_id);
-                Some((None, Some(text_id)))
+                if let Some(tid) = action.target_id.as_ref() {
+                    state.texts.retain(|t| &t.id != tid);
+                    removed_text = action.target_id.clone();
+                }
             }
-            PenActionKind::TextDelete | PenActionKind::Clear => None,
+            PenActionKind::TextDelete | PenActionKind::Clear => {
+                // In-memory state does not restore; writer's
+                // apply_pen_undo rehydrates from payload_json.
+            }
         }
+        Some(PenUndoOutcome {
+            action_id: action.id,
+            removed_stroke,
+            removed_text,
+        })
     }
 
     pub fn load_pen_board_state(
@@ -2163,12 +2234,136 @@ mod tests {
         };
         r.create_board(board, 100);
         r.pen_begin_stroke("b1", "s1".into(), "#000".into(), 4.0, 1000);
-        let result = r.pen_undo("b1");
-        assert!(result.is_some());
-        let (stroke_id, _) = result.unwrap();
-        assert_eq!(stroke_id, Some("s1".into()));
+        let outcome = r.pen_undo("b1").expect("pen_undo returns Some");
+        assert_eq!(outcome.removed_stroke, Some("s1".into()));
+        assert_eq!(outcome.removed_text, None);
+        assert!(!outcome.action_id.is_empty());
         let state = r.get_pen_board_state("b1").unwrap();
         assert!(state.strokes.is_empty());
+    }
+
+    #[test]
+    fn pen_end_stroke_returns_summary_and_matching_begin_action_id() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        r.pen_begin_stroke("b1", "s1".into(), "#000".into(), 4.0, 1000);
+        r.pen_append_points("b1", "s1", vec![[0.0, 1.0, 2.0]]);
+        let (summary, action_id) =
+            r.pen_end_stroke("b1", "s1").expect("end returns Some");
+        assert_eq!(summary.id, "s1");
+        assert_eq!(summary.points.len(), 1);
+        assert_eq!(summary.ord, 1);
+        // The returned action_id must match the StrokeBegin action that
+        // sits in the in-memory log for this stroke.
+        let state = r.get_pen_board_state("b1").unwrap();
+        let begin = state
+            .action_log
+            .iter()
+            .find(|a| {
+                a.kind == PenActionKind::StrokeBegin
+                    && a.target_id.as_deref() == Some("s1")
+            })
+            .expect("StrokeBegin action present");
+        assert_eq!(begin.id, action_id);
+    }
+
+    #[test]
+    fn pen_text_upsert_returns_prior_state_when_overwriting() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        let first = crate::proto::PenText {
+            id: "t1".into(),
+            x: 1.0,
+            y: 2.0,
+            text: "first".into(),
+            font_size: 16.0,
+            color: "#000".into(),
+            updated_at: 1000,
+        };
+        let (_id1, prior_first) =
+            r.pen_text_upsert("b1", first.clone(), 1000).expect("insert");
+        assert!(prior_first.is_none(), "first insert has no prior");
+        let second = crate::proto::PenText {
+            id: "t1".into(),
+            x: 3.0,
+            y: 4.0,
+            text: "second".into(),
+            font_size: 18.0,
+            color: "#111".into(),
+            updated_at: 2000,
+        };
+        let (_id2, prior_second) =
+            r.pen_text_upsert("b1", second, 2000).expect("overwrite");
+        let prior = prior_second.expect("overwrite returns prior");
+        assert_eq!(prior, first, "prior must be exactly the first text");
+    }
+
+    #[test]
+    fn pen_text_delete_returns_removed_text() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        let text = crate::proto::PenText {
+            id: "t1".into(),
+            x: 1.0,
+            y: 2.0,
+            text: "doomed".into(),
+            font_size: 16.0,
+            color: "#000".into(),
+            updated_at: 1000,
+        };
+        r.pen_text_upsert("b1", text.clone(), 1000);
+        let (_, removed) = r
+            .pen_text_delete("b1", "t1", 2000)
+            .expect("delete returns Some");
+        assert_eq!(removed, text);
+    }
+
+    #[test]
+    fn pen_clear_returns_snapshot_of_prior_strokes_and_texts() {
+        let r = Room::new("R".into(), "T".into(), 0);
+        let board = Board {
+            id: "b1".into(),
+            kind: BoardKind::Pen,
+            title: "Pen".into(),
+            created_at: 100,
+            ord: 1.0,
+        };
+        r.create_board(board, 100);
+        r.pen_begin_stroke("b1", "s1".into(), "#000".into(), 4.0, 1000);
+        let text = crate::proto::PenText {
+            id: "t1".into(),
+            x: 1.0,
+            y: 2.0,
+            text: "hi".into(),
+            font_size: 16.0,
+            color: "#000".into(),
+            updated_at: 1000,
+        };
+        r.pen_text_upsert("b1", text, 1000);
+        let (_, strokes, texts) = r.pen_clear("b1", 2000).expect("clear");
+        assert_eq!(strokes.len(), 1, "snapshot must contain prior stroke");
+        assert_eq!(texts.len(), 1, "snapshot must contain prior text");
     }
 
     #[test]
