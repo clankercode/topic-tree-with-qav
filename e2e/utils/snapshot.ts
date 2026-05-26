@@ -7,13 +7,26 @@
 // `data-connection="connected"` — i.e. Welcome has been applied to
 // the session store.
 //
-// `expectThemedScreenshot` produces paired light + dark PNGs for the
-// CI snapshot-pairs gate (scripts/check-snapshot-pairs.sh). It
-// switches themes by toggling the root `dark` class and the
+// `expectThemedScreenshot` asserts paired light + dark Playwright
+// snapshots. Baselines live in Playwright's tracked `*-snapshots/`
+// directories instead of the ignored `e2e/screenshots/` output folder.
+// It switches themes by toggling the root `dark` class and the
 // persisted `theme` localStorage key, awaits the next paint, hides
-// noisy elements via `.snapshot-mode`, shoots, and restores.
+// noisy elements via `.snapshot-mode`, asserts, and restores.
 
 import { expect, type Page } from "@playwright/test";
+
+type ScreenshotClip = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type ThemedScreenshotOptions = {
+  fullPage?: boolean;
+  clip?: ScreenshotClip;
+};
 
 export async function awaitAppReady(
   page: Page,
@@ -62,7 +75,7 @@ async function setTheme(page: Page, theme: "light" | "dark") {
 export async function expectThemedScreenshot(
   page: Page,
   name: string,
-  opts: { fullPage?: boolean; clip?: { x: number; y: number; width: number; height: number } } = {},
+  opts: ThemedScreenshotOptions = {},
 ) {
   await page.evaluate(() =>
     document.documentElement.classList.add("snapshot-mode"),
@@ -72,9 +85,7 @@ export async function expectThemedScreenshot(
     // end leaves the page in light mode for any subsequent assertions.
     for (const theme of ["dark", "light"] as const) {
       await setTheme(page, theme);
-      const path = `screenshots/${name}-${theme}.png`;
-      await page.screenshot({
-        path,
+      await expect(page).toHaveScreenshot(`${name}-${theme}.png`, {
         fullPage: opts.fullPage ?? false,
         clip: opts.clip,
         animations: "disabled",

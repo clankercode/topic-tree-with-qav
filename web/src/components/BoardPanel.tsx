@@ -22,8 +22,14 @@ export function BoardPanel() {
   const focusedBoard = boards.find((b) => b.id === focusedBoardId) ?? boards[0];
 
   function handleSelectBoard(boardId: string) {
-    if (!isHost) return;
-    sendWsMsg({ v: 1, type: "SetFocusedBoard", boardId });
+    if (isHost) {
+      sendWsMsg({ v: 1, type: "SetFocusedBoard", boardId });
+      return;
+    }
+
+    if (!followingHost) {
+      useSessionStore.setState({ focusedBoardId: boardId });
+    }
   }
 
   if (boards.length === 0) {

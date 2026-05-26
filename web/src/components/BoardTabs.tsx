@@ -49,70 +49,83 @@ export function BoardTabs({
 
   return (
     <div className="flex items-center gap-1 border-b border-[rgb(var(--border))] bg-[rgb(var(--surface))] px-2 overflow-x-auto">
-      {boards.map((board) => (
-        <div key={board.id} className="relative">
-          <button
-            type="button"
-            onClick={() => onSelectBoard(board.id)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-sm whitespace-nowrap border-b-2 transition-colors ${
-              focusedBoardId === board.id
+      {boards.map((board) => {
+        const isFocused = focusedBoardId === board.id;
+        const isRenaming = renaming === board.id;
+
+        return (
+          <div key={board.id} className="relative">
+            <div
+              className={`flex items-center whitespace-nowrap border-b-2 text-sm transition-colors ${
+                isFocused
                 ? "border-[rgb(var(--accent))] text-[rgb(var(--accent))]"
                 : "border-transparent hover:bg-[rgb(var(--muted))/10]"
-            }`}
-          >
-            <KindIcon kind={board.kind} />
-            {renaming === board.id ? (
-              <input
-                type="text"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onBlur={() => handleRenameSubmit(board.id)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleRenameSubmit(board.id);
-                  if (e.key === "Escape") setRenaming(null);
-                }}
-                className="w-24 px-1 py-0.5 text-sm bg-[rgb(var(--bg))] border border-[rgb(var(--accent))] rounded"
-                autoFocus
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <span className="max-w-32 truncate">{board.title}</span>
-            )}
-            {isHost && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setMenuOpen(menuOpen === board.id ? null : board.id);
-                }}
-                className="p-0.5 rounded hover:bg-[rgb(var(--muted))/20]"
-              >
-                <MoreHorizontal className="w-4 h-4" />
-              </button>
-            )}
-          </button>
-          {isHost && menuOpen === board.id && (
-            <div className="absolute top-full left-0 mt-1 bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded shadow-lg z-10 min-w-32">
-              <button
-                type="button"
-                onClick={() => handleRename(board)}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-[rgb(var(--muted))/10]"
-              >
-                <Pencil className="w-4 h-4" />
-                Rename
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDelete(board.id)}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-[rgb(var(--muted))/10] text-red-500"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete
-              </button>
+              }`}
+            >
+              {isRenaming ? (
+                <div className="flex items-center gap-1.5 px-3 py-2">
+                  <KindIcon kind={board.kind} />
+                  <input
+                    type="text"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={() => handleRenameSubmit(board.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleRenameSubmit(board.id);
+                      if (e.key === "Escape") setRenaming(null);
+                    }}
+                    className="w-24 rounded border border-[rgb(var(--accent))] bg-[rgb(var(--bg))] px-1 py-0.5 text-sm"
+                    autoFocus
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onSelectBoard(board.id)}
+                  className="flex items-center gap-1.5 px-3 py-2"
+                >
+                  <KindIcon kind={board.kind} />
+                  <span className="max-w-32 truncate">{board.title}</span>
+                </button>
+              )}
+              {isHost && (
+                <button
+                  type="button"
+                  aria-label={`Board actions for ${board.title}`}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen === board.id}
+                  onClick={() =>
+                    setMenuOpen(menuOpen === board.id ? null : board.id)
+                  }
+                  className="mr-1 rounded p-0.5 hover:bg-[rgb(var(--muted))/20]"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              )}
             </div>
-          )}
-        </div>
-      ))}
+            {isHost && menuOpen === board.id && (
+              <div className="absolute top-full left-0 mt-1 bg-[rgb(var(--surface))] border border-[rgb(var(--border))] rounded shadow-lg z-10 min-w-32">
+                <button
+                  type="button"
+                  onClick={() => handleRename(board)}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-[rgb(var(--muted))/10]"
+                >
+                  <Pencil className="w-4 h-4" />
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(board.id)}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-[rgb(var(--muted))/10] text-red-500"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

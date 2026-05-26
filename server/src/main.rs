@@ -30,17 +30,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let (state, writer_join) = server::AppState::new(db, metrics);
 
-    let _excalidraw_reset_task = server::ws::spawn_excalidraw_scene_reset_task(state.clone());
-    let _idle_reaper_task = spawn_idle_reaper(state.clone());
+    let excalidraw_reset_task = server::ws::spawn_excalidraw_scene_reset_task(state.clone());
+    let idle_reaper_task = spawn_idle_reaper(state.clone());
 
     axum::serve(listener, server::app_with_state(state.clone()))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
+    // Stop long-lived maintenance tasks before dropping state; each one
+    // owns an AppState clone, including a writer_tx clone.
+    excalidraw_reset_task.abort();
+    idle_reaper_task.abort();
+    let _ = excalidraw_reset_task.await;
+    let _ = idle_reaper_task.await;
+
     // Graceful shutdown drain: dropping `state` releases this scope's
-    // writer_tx clone. Any other clones (held by closed-out ws
-    // sessions) drop as their futures finish. Then the writer's
-    // `rx.recv()` returns None and the task exits.
+    // writer_tx clone. Any other clones (held by closed-out ws sessions)
+    // drop as their futures finish. Then the writer's `rx.recv()` returns
+    // None and the task exits.
     drop(state);
     match tokio::time::timeout(server::writer::SHUTDOWN_DRAIN_TIMEOUT, writer_join).await {
         Ok(Ok(())) => tracing::info!("writer task drained cleanly"),
